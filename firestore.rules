@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── who is who ──────────────────────────────────────────────────
+    // People sign in with Google. Access is an allowlist: a doc in /users
+    // keyed by lowercase email. The owner email is always an admin so the
+    // very first sign-in can bootstrap the team list.
+    function signedIn() { return request.auth != null && request.auth.token.email != null; }
+    function email() { return request.auth.token.email.lower(); }
+    function isOwner() { return signedIn() && email() == 'admin@nudesyogurt.com'; }
+    function userPath() { return /databases/$(database)/documents/users/$(email()); }
+    function onList() { return exists(userPath()); }
+    function isUser() { return signedIn() && (isOwner() || onList()); }
+    function isAdmin() { return signedIn() && (isOwner() || (onList() && get(userPath()).data.role == 'admin')); }
+
+    // ── team list ───────────────────────────────────────────────────
+    match /users/{uid} {
+      // anyone signed in may read their own row (to learn their role)
+      allow get: if signedIn() && uid == email();
+      // a person may refresh their own profile fields, never their role
+      allow update: if signedIn() && uid == email()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'photo', 'lastSeen']);
+      allow list, create, delete: if isAdmin();
+      allow update: if isAdmin();
+    }
+
+    // ── master data: everyone reads, admins write ───────────────────
+    match /items/{id}     { allow read: if isUser(); allow write: if isAdmin(); }
+    match /suppliers/{id} { allow read: if isUser(); allow write: if isAdmin(); }
+    match /settings/{id}  { allow read: if isUser(); allow write: if isAdmin(); }
+
+    // ── daily counts & sent orders: everyone on the team ────────────
+    match /counts/{day}   { allow read, write: if isUser(); }
+    match /orders/{id}    { allow read, write: if isUser(); }
+  }
+}
