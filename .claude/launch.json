@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "dev-mock", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "./dev/sync.sh && python3 -m http.server 8765 --directory dev/site"], "port": 8765 }
+    { "name": "dev-mock", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/Users/ybutbul/Documents/Claude Projects/Nudes Par Sysytem/dev/site"], "port": 8765 }
   ]
 }

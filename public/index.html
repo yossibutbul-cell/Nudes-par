@@ -51,7 +51,7 @@
     <nav class="nav" id="nav">
       <div class="grp">every day</div>
       <button data-go="today"><svg><use href="#i-sun"/></svg>today</button>
-      <button data-go="count"><svg><use href="#i-clip"/></svg>daily count<span class="cnt" id="nav-count-left"></span></button>
+      <button data-go="count"><svg><use href="#i-clip"/></svg>count<span class="cnt" id="nav-count-left"></span></button>
       <button data-go="orders"><svg><use href="#i-truck"/></svg>order report<span class="cnt" id="nav-orders"></span></button>
       <div class="grp admin-only">admin</div>
       <button data-go="items" class="admin-only"><svg><use href="#i-list"/></svg>items &amp; par</button>
@@ -95,7 +95,8 @@
 
     <!-- ── count ─────────────────────────────────────────────────── -->
     <section class="screen" id="s-count"><div class="wrap">
-      <div class="count-hd">
+      <div id="count-meta"></div>
+      <div class="count-hd" id="count-hd">
         <div class="prog"><div class="lbl"><span id="prog-lbl"></span><span class="num" id="prog-pct"></span></div><div class="bar"><i id="prog-bar" style="width:0"></i></div></div>
         <div class="chips" id="area-chips"></div>
       </div>
@@ -103,7 +104,7 @@
       <div class="stick">
         <div class="note" id="stick-note"></div>
         <div class="spacer" style="flex:1"></div>
-        <button class="btn ghost" id="reset-count">clear today</button>
+        <button class="btn ghost" id="reset-count">clear count</button>
         <button class="btn" data-go="orders">finish count → order report <svg><use href="#i-arrow"/></svg></button>
       </div>
     </div></section>
@@ -111,10 +112,12 @@
     <!-- ── orders ────────────────────────────────────────────────── -->
     <section class="screen" id="s-orders"><div class="wrap">
       <div class="toolbar">
-        <div><h2 style="font-size:20px">what to order</h2><div class="muted" style="font-size:13px">order = par − on hand, rounded up to whole cases. grouped by supplier.</div></div>
+        <div><h2 style="font-size:20px">what to order</h2><div class="muted" style="font-size:13px" id="orders-sub">order = par − on hand, rounded up to whole cases. grouped by supplier.</div></div>
         <div class="grow"></div>
         <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--ink-2)"><input type="checkbox" id="show-all"> show items at par</label>
+        <button class="btn" id="finalize"><svg><use href="#i-check"/></svg>finalize &amp; email manager</button>
       </div>
+      <div id="orders-meta"></div>
       <div class="sum" id="order-sum"></div>
       <div id="orders-body"></div>
     </div></section>
@@ -144,8 +147,8 @@
 
     <!-- ── history ───────────────────────────────────────────────── -->
     <section class="screen" id="s-history"><div class="wrap">
-      <div class="toolbar"><div><h2 style="font-size:20px">count history</h2><div class="muted" style="font-size:13px">every daily count and the orders it produced. last 60 days.</div></div></div>
-      <div class="card scrollx"><table class="ht"><thead><tr><th>date</th><th>counted by</th><th class="hide-m">last entry</th><th class="r">counted</th><th class="r">below par</th><th class="r">out</th><th class="hide-m">ordered from</th><th class="r hide-m">est. cost</th><th></th></tr></thead><tbody id="hist-body"></tbody></table></div>
+      <div class="toolbar"><div><h2 style="font-size:20px">count history</h2><div class="muted" style="font-size:13px">every count and the orders it produced. last 60 days.</div></div></div>
+      <div class="card scrollx"><table class="ht"><thead><tr><th>count date</th><th>counted by</th><th class="hide-m">status</th><th class="r">counted</th><th class="r">below par</th><th class="r">out</th><th class="hide-m">ordered from</th><th class="r hide-m">est. cost</th><th></th></tr></thead><tbody id="hist-body"></tbody></table></div>
     </div></section>
 
     <!-- ── team ──────────────────────────────────────────────────── -->
@@ -155,7 +158,7 @@
         <div class="scrollx"><table class="ut"><thead><tr><th>person</th><th class="hide-m">last seen</th><th>role</th><th class="r"></th></tr></thead><tbody id="team-body"></tbody></table></div>
         <form class="inline-add" id="team-add"><input type="email" id="team-email" placeholder="email@gmail.com" required aria-label="email to invite"><select id="team-role" aria-label="role"><option value="staff">staff</option><option value="admin">admin</option></select><button class="btn sm" type="submit"><svg><use href="#i-plus"/></svg>add</button></form>
       </div>
-      <p class="muted" style="font-size:12.5px;margin-top:10px">staff: daily count and order report. admin: everything, including items, par levels, suppliers, history, team and settings.</p>
+      <p class="muted" style="font-size:12.5px;margin-top:10px">staff: count and order report. admin: everything, including items, par levels, suppliers, history, team and settings.</p>
     </div></section>
 
     <!-- ── settings ──────────────────────────────────────────────── -->
@@ -165,6 +168,7 @@
         <div class="card" style="padding:18px 20px"><form class="f" id="store-form">
           <div class="f2"><div class="fld"><label for="st-name">store name</label><input id="st-name" placeholder="nudes"></div><div class="fld"><label for="st-addr">address</label><input id="st-addr" placeholder="165 s crescent heights blvd"></div></div>
           <div class="f2"><div class="fld"><label for="st-city">city</label><input id="st-city" placeholder="los angeles"></div><div class="fld"><label for="st-sign">order sign-off</label><input id="st-sign" placeholder="thanks! nudes"><span class="hint">last line of every order message</span></div></div>
+          <div class="fld"><label for="st-managers">order manager emails</label><textarea id="st-managers" placeholder="manager@nudesyogurt.com, owner@nudesyogurt.com"></textarea><span class="hint">when a count is finalized, one email with the full order summary goes to everyone listed here. separate with commas or new lines.</span></div>
           <div class="macts" style="margin-top:6px"><button class="btn" type="submit">save store</button></div>
         </form></div>
       </div>
@@ -199,7 +203,7 @@
   <div class="in">
     <div class="brand"><svg class="mark"><use href="#nu"/></svg><div><div class="word">nudes</div><div class="sub">par &amp; ordering</div></div></div>
     <div id="gate-signin">
-      <div><h2>who's here today?</h2><p class="lead">sign in with the google account your manager added. staff get the daily count and today's order report. admins also manage items, par levels and suppliers.</p></div>
+      <div><h2>who's here today?</h2><p class="lead">sign in with the google account your manager added. staff run the count and the order report. admins also manage items, par levels and suppliers.</p></div>
       <div style="margin-top:26px"><button class="gbtn" id="google-signin"><svg><use href="#i-google"/></svg>sign in with google</button></div>
       <div class="err" id="gate-err" hidden></div>
     </div>
@@ -214,7 +218,7 @@
 
 <!-- item modal -->
 <div class="ov" id="item-ov"><div class="modal wide" role="dialog" aria-labelledby="im-title">
-  <h2 id="im-title">add item</h2><p>anything you count every morning.</p>
+  <h2 id="im-title">add item</h2><p>anything you count.</p>
   <form class="f" id="item-form"><div class="scrollbody f">
     <div class="f2">
       <div class="fld" style="grid-column:1/-1"><label for="f-name">item name</label><input id="f-name" required placeholder="e.g. greek yogurt base"></div>

@@ -6,6 +6,7 @@ export const SEED_SETTINGS = {
   address: '165 s crescent heights blvd',
   city: 'los angeles',
   signoff: 'thanks!\nnudes',
+  managerEmails: [],
   areas: ['walk-in fridge', 'freezer', 'dry storage', 'front counter'],
 };
 

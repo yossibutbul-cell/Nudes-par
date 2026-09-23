@@ -1,6 +1,6 @@
 # nudes par & ordering
 
-Daily par count and supplier ordering for Nudes Yogurt (165 S Crescent Heights Blvd, Los Angeles).
+Par count and supplier ordering for Nudes Yogurt (165 S Crescent Heights Blvd, Los Angeles).
 A single-page web app hosted on Firebase Hosting, with Google sign-in and Firestore.
 No build step: `public/` is served as-is.
 
@@ -9,13 +9,16 @@ No build step: `public/` is served as-is.
 - **Sign-in** is Google only. Access is an allowlist: a document in `users/{email}` with a `role` of
   `staff` or `admin`. `admin@nudesyogurt.com` is the owner and is always an admin (hardcoded in
   `firestore.rules` and `public/firebase-config.js`), so the very first sign-in works.
-- **Staff** see today, the daily count and the order report. **Admins** also get items & par,
+- **Staff** see today, the count and the order report. **Admins** also get items & par,
   suppliers, count history, team and settings.
-- **Counts** live in `counts/{YYYY-MM-DD}` (Los Angeles calendar day) as a map of
-  `entries[itemId] = { on, par, by, at }`. Everyone on the team edits the same document in real time.
+- **Counts** are sporadic, not daily. Someone starts a count (picking the date it is for), everyone
+  edits the same `counts/{id}` document in real time (`entries[itemId] = { on, par, by, at }`), and
+  the order report is built from the latest count. **Finalizing** (on the order report) locks the
+  count, stores an order summary snapshot on it, and opens one email to the order manager(s) listed
+  in settings with every supplier's order and estimated cost. The next count starts fresh.
 - **Orders**: order = par − on hand, rounded up to whole cases. "Send" opens the user's mail app,
   WhatsApp, or SMS with the order pre-filled (or copies it for phone / portal suppliers) and logs the
-  order in `orders/{date_supplierId}` with lines and estimated cost.
+  order in `orders/{countId_supplierId}` with lines and estimated cost.
 - **Pricing**: each item has a case price, units per case and unit weight (oz).
   price per unit = case price ÷ units per case; price per oz = price per unit ÷ unit weight.
 
@@ -55,7 +58,8 @@ The app is then at `https://<project-id>.web.app`.
 2. Settings → "load starter items & suppliers" (only offered while the item list is empty).
 3. Items & par → set real par levels, case prices and unit weights.
 4. Suppliers → fill in contact, delivery days and cut-offs.
-5. Team → add staff emails.
+5. Settings → order manager emails (who receives the summary when a count is finalized).
+6. Team → add staff emails.
 
 ## Local development
 

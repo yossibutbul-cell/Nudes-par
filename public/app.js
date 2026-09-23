@@ -69,15 +69,17 @@ const relDay = n => n === 0 ? 'today' : n === 1 ? 'tomorrow' : null;
 /* ── state ─────────────────────────────────────────────────────────── */
 let me = null;            // { email, name, photo, role }
 let items = [], suppliers = [], users = [], settings = { areas: [] };
-let count = { date: null, entries: {} };
-let todayOrders = {};     // supplierId → order doc
+let cur = null;           // the latest count doc: { id, date, status, entries, startedAt, startedBy, ... }
+let count = { entries: {} };   // alias of cur (or empty) for the helpers below
+let todayOrders = {};     // supplierId → order doc for the current count
 let screen = 'today', areaFilter = 'all', showAll = false, editingId = null, editingSup = null;
 let pendingRender = false;
 const unsubs = [];
-let currentKey = null;
 const ready = { items: false, suppliers: false, settings: false, count: false };
 
 const isAdmin = () => me?.role === 'admin';
+const countOpen = () => !!cur && cur.status === 'open';
+const countLabel = c => c?.date ? fmtDay(keyToDate(c.date), { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
 const AREAS = () => settings.areas?.length ? settings.areas : ['general'];
 const supById = id => suppliers.find(s => s.id === id) || { id, name: '—', method: 'email', to: '', deliveryDays: [] };
 const entry = it => count.entries[it.id];
@@ -90,7 +92,7 @@ const unitPrice = it => (it.casePrice != null && it.unitsPerCase) ? it.casePrice
 const ozPrice = it => { const u = unitPrice(it); return (u != null && it.weightOz) ? u / it.weightOz : null; };
 const lineCost = it => it.casePrice != null ? cases(it) * it.casePrice : null;
 const orderedGroups = () => suppliers.map(s => ({ s, rows: items.filter(i => i.supplierId === s.id && need(i) > 0) })).filter(g => g.rows.length);
-const TITLES = { today: 'today', count: 'daily count', orders: 'order report', items: 'items & par', suppliers: 'suppliers', history: 'count history', team: 'team', settings: 'settings' };
+const TITLES = { today: 'today', count: 'count', orders: 'order report', items: 'items & par', suppliers: 'suppliers', history: 'count history', team: 'team', settings: 'settings' };
 const ADMIN_SCREENS = ['items', 'suppliers', 'history', 'team', 'settings'];
 function sortItems() {
   const ai = a => { const i = AREAS().indexOf(a); return i < 0 ? 99 : i; };
@@ -150,7 +152,7 @@ function showGate(mode) {
   $('#gate-fine').textContent = `${SEED_SETTINGS.address} · ${SEED_SETTINGS.city}`;
 }
 
-function teardown() { unsubs.splice(0).forEach(u => u()); me = null; items = []; suppliers = []; users = []; todayOrders = {}; count = { date: null, entries: {} }; Object.keys(ready).forEach(k => ready[k] = false); }
+function teardown() { unsubs.splice(0).forEach(u => u()); me = null; items = []; suppliers = []; users = []; todayOrders = {}; cur = null; count = { entries: {} }; Object.keys(ready).forEach(k => ready[k] = false); }
 
 /* ── enter the app: role UI + live listeners ───────────────────────── */
 const TABS = {
@@ -174,19 +176,30 @@ function enterApp() {
   unsubs.push(onSnapshot(query(collection(db, 'suppliers'), orderBy('name')), s => { suppliers = s.docs.map(d => ({ id: d.id, ...d.data() })); ready.suppliers = true; scheduleRender(); }, onErr));
   unsubs.push(onSnapshot(doc(db, 'settings', 'main'), s => { settings = s.exists() ? s.data() : { areas: [] }; if (!settings.areas) settings.areas = []; sortItems(); ready.settings = true; scheduleRender(); }, onErr));
   if (isAdmin()) unsubs.push(onSnapshot(collection(db, 'users'), s => { users = s.docs.map(d => ({ id: d.id, ...d.data() })); scheduleRender(); }, onErr));
-  subscribeDay();
-  // roll over at midnight (store time) even if the tab stays open
-  const t = setInterval(() => { if (todayKey() !== currentKey) subscribeDay(); }, 30000); unsubs.push(() => clearInterval(t));
+  subscribeCurrent();
 }
-let daySubs = [];
-function subscribeDay() {
-  daySubs.splice(0).forEach(u => u());
-  currentKey = todayKey();
-  count = { date: currentKey, entries: {} }; todayOrders = {};
+/* The current count is simply the most recently started one. If it is finalized,
+   there is no open count and the count screen offers to start a new one. */
+let orderSub = null, orderSubId = null;
+function subscribeCurrent() {
   const onErr = e => { console.error(e); toast('sync problem: ' + (e.code || e.message)); };
-  daySubs.push(onSnapshot(doc(db, 'counts', currentKey), s => { count = s.exists() ? { entries: {}, ...s.data() } : { date: currentKey, entries: {} }; ready.count = true; scheduleRender(); }, onErr));
-  daySubs.push(onSnapshot(query(collection(db, 'orders'), where('date', '==', currentKey)), s => { todayOrders = {}; s.docs.forEach(d => todayOrders[d.data().supplierId] = { id: d.id, ...d.data() }); scheduleRender(); }, onErr));
-  unsubs.push(() => daySubs.splice(0).forEach(u => u()));
+  unsubs.push(onSnapshot(query(collection(db, 'counts'), orderBy('startedAt', 'desc'), limit(1)), snap => {
+    const d = snap.docs[0];
+    cur = d ? { entries: {}, ...d.data(), id: d.id } : null;
+    count = cur || { entries: {} };
+    ready.count = true;
+    if ((cur?.id || null) !== orderSubId) {
+      if (orderSub) orderSub(); orderSub = null; orderSubId = cur?.id || null; todayOrders = {};
+      if (cur) orderSub = onSnapshot(query(collection(db, 'orders'), where('countId', '==', cur.id)), s => { todayOrders = {}; s.docs.forEach(x => todayOrders[x.data().supplierId] = { id: x.id, ...x.data() }); scheduleRender(); }, onErr);
+    }
+    scheduleRender();
+  }, onErr));
+  unsubs.push(() => { if (orderSub) orderSub(); orderSub = null; orderSubId = null; });
+}
+async function startCount(date) {
+  const ref = doc(collection(db, 'counts'));
+  await setDoc(ref, { date, status: 'open', entries: {}, startedAt: serverTimestamp(), startedBy: me.name, startedByEmail: me.email });
+  toast(`count started for ${fmtDay(keyToDate(date), { weekday: 'short', month: 'short', day: 'numeric' })}`);
 }
 
 /* ── navigation ────────────────────────────────────────────────────── */
@@ -222,11 +235,11 @@ function render() {
   $('#date').textContent = fmtDay(dayPlus(0, now), { weekday: 'long', month: 'long', day: 'numeric' });
   $('#foot-addr').textContent = settings.address || SEED_SETTINGS.address; $('#foot-sub').textContent = `${settings.city || SEED_SETTINGS.city} · one location`;
   const left = items.length - counted();
-  $('#nav-count-left').textContent = items.length ? (left ? left + ' left' : 'done') : '';
+  $('#nav-count-left').textContent = countOpen() && items.length ? (left ? left + ' left' : 'done') : '';
   const supsToOrder = orderedGroups().filter(g => !todayOrders[g.s.id]).length;
   $('#nav-orders').textContent = supsToOrder || '';
   const bc = $('#badge-count'), bo = $('#badge-orders');
-  if (bc) { bc.textContent = left; bc.hidden = !left; } if (bo) { bo.textContent = supsToOrder; bo.hidden = !supsToOrder; }
+  if (bc) { bc.textContent = left; bc.hidden = !(left && countOpen()); } if (bo) { bo.textContent = supsToOrder; bo.hidden = !supsToOrder; }
   $('#sheet-items').textContent = items.length + ' items'; $('#sheet-sups').textContent = suppliers.length; $('#sheet-team').textContent = users.length ? users.length + ' people' : '';
   ({ today: renderToday, count: renderCount, orders: renderOrders, items: renderItems, suppliers: renderSuppliers, history: renderHistory, team: renderTeam, settings: renderSettings })[screen]();
 }
@@ -243,25 +256,27 @@ function statusPill(it) {
 function renderToday() {
   const now = laNow();
   $('#greet').textContent = `${now.h < 12 ? 'good morning' : now.h < 17 ? 'good afternoon' : 'good evening'}, ${me.name}.`;
-  const c = counted(), n = items.length;
+  const c = counted(), n = items.length, open = countOpen();
   const below = items.filter(i => status(i) === 'low' || status(i) === 'out'), out = items.filter(i => status(i) === 'out');
   const groups = orderedGroups(), unsent = groups.filter(g => !todayOrders[g.s.id]);
   $('#today-banner').innerHTML = (!n && isAdmin()) ? `<div class="banner">no items yet. add them on the items screen, or load the starter list in settings.<button class="btn sm" data-go="settings">open settings</button></div>` : '';
-  $('#count-cta').innerHTML = (c === 0 ? 'start the count' : c < n ? 'continue count' : 'review count') + ' <svg><use href="#i-arrow"/></svg>';
-  $('#greet-sub').textContent = !n ? 'nothing to count yet.' : c < n
-    ? `today's count is ${c === 0 ? 'not started' : 'in progress'} · ${n - c} ${plural(n - c, 'item')} still to count before the report is final.`
-    : `today's count is complete. ${unsent.length ? `${unsent.length} supplier ${plural(unsent.length, 'order')} ready to send.` : groups.length ? 'all orders sent.' : 'nothing to order.'}`;
+  $('#count-cta').innerHTML = (!cur || !open ? 'start a count' : c === 0 ? 'start counting' : c < n ? 'continue count' : 'review count') + ' <svg><use href="#i-arrow"/></svg>';
+  $('#greet-sub').textContent = !n ? 'nothing to count yet.'
+    : !cur ? 'no count yet. start one whenever you\'re ready.'
+    : !open ? `the last count (${countLabel(cur)}) was finalized${cur.finalizedBy ? ' by ' + cur.finalizedBy : ''}. start a new count when you need one.`
+    : c < n ? `count of ${countLabel(cur)} is ${c === 0 ? 'not started' : 'in progress'} · ${n - c} ${plural(n - c, 'item')} still to count before the report is final.`
+    : `count of ${countLabel(cur)} is complete. ${unsent.length ? `${unsent.length} supplier ${plural(unsent.length, 'order')} ready to send.` : groups.length ? 'all orders sent.' : 'nothing to order.'} finalize it on the order report.`;
   const lastAt = Object.values(count.entries).map(e => e.at?.toDate?.()).filter(Boolean).sort((a, b) => b - a)[0];
   const nd = suppliers.map(s => ({ s, d: nextDelivery(s, now) })).filter(x => x.d).sort((a, b) => a.d.n - b.d.n)[0];
   $('#stats').innerHTML = `
-    <div class="card stat"><div class="eyebrow">today's count</div><div class="v">${c}<small>/ ${n}</small></div><div class="d">${c < n ? 'items counted so far' : 'complete' + (lastAt ? ' · ' + fmtStamp(lastAt) : '')}</div></div>
+    <div class="card stat"><div class="eyebrow">${open ? 'current count' : 'last count'}</div><div class="v">${cur ? c : '—'}${cur ? `<small>/ ${n}</small>` : ''}</div><div class="d">${cur ? countLabel(cur) + (open ? (c < n ? ' · in progress' : ' · complete') : ' · finalized') + (lastAt ? ' · ' + fmtStamp(lastAt) : '') : 'no count yet'}</div></div>
     <div class="card stat"><div class="eyebrow">below par</div><div class="v" style="color:${below.length ? 'var(--low)' : 'inherit'}">${below.length}</div><div class="d">${out.length} out of stock</div></div>
-    <div class="card stat"><div class="eyebrow">orders to send</div><div class="v">${unsent.length}</div><div class="d">${esc(unsent.map(g => g.s.name.split(' ')[0]).join(' · ')) || (groups.length ? 'all sent today' : 'nothing to order')}</div></div>
+    <div class="card stat"><div class="eyebrow">orders to send</div><div class="v">${unsent.length}</div><div class="d">${esc(unsent.map(g => g.s.name.split(' ')[0]).join(' · ')) || (groups.length ? 'all sent' : 'nothing to order')}</div></div>
     <div class="card stat"><div class="eyebrow">next delivery</div><div class="v" style="font-size:24px;padding-top:4px">${nd ? (relDay(nd.d.n) || fmtDay(nd.d.deliver, { weekday: 'long' })) : '—'}</div><div class="d">${nd ? esc(nd.s.name) + (nd.s.cutoffTime ? ` · order by ${fmtTime(nd.s.cutoffTime)} ${relDay(nd.d.cutOff) || fmtDay(nd.d.cutoffDay, { weekday: 'short' })}` : '') : 'no delivery days set'}</div></div>`;
   const top = below.sort((a, b) => (onHand(a) / (a.par || 1)) - (onHand(b) / (b.par || 1))).slice(0, 6);
-  $('#bp-note').textContent = below.length > 6 ? `showing 6 of ${below.length}` : '';
+  $('#bp-note').textContent = below.length > 6 ? `showing 6 of ${below.length}` : (cur ? `count of ${countLabel(cur)}` : '');
   $('#bp-list').innerHTML = top.length ? top.map(i => `<li><div class="name">${esc(i.name)}<small>${esc(supById(i.supplierId).name)} · par ${i.par}</small></div><span class="num muted" style="font-size:13px">${onHand(i)} / ${i.par}</span>${statusPill(i)}</li>`).join('')
-    : `<li class="muted" style="padding:16px 18px">${c ? 'everything counted so far is at par.' : 'start the count to see what\'s short.'}</li>`;
+    : `<li class="muted" style="padding:16px 18px">${c ? 'everything counted so far is at par.' : 'start a count to see what\'s short.'}</li>`;
   const sched = suppliers.map(s => ({ s, d: nextDelivery(s, now) })).sort((a, b) => (a.d ? a.d.n : 99) - (b.d ? b.d.n : 99));
   $('#sched').innerHTML = sched.length ? sched.map(({ s, d }) => {
     if (!d) return `<li><div class="day">${s.deliveryDays?.length ? 'later' : 'any'}<small>${s.deliveryDays?.length ? '' : 'on request'}</small></div><div>${esc(s.name)}<br><span class="muted" style="font-size:12.5px">${s.deliveryDays?.length ? 'next delivery beyond two weeks' : (s.method === 'phone' ? 'order by phone' : 'order any day')}</span></div><span class="pill neutral">${s.deliveryDays?.length ? 'later' : 'any day'}</span></li>`;
@@ -275,13 +290,32 @@ function renderToday() {
 /* The list is rebuilt only when the set of rows changes; a count change
    patches values in place so a phone keyboard never loses its input. */
 let countSig = '';
+function renderCountMeta() {
+  const open = countOpen();
+  if (!cur || !open) {
+    $('#count-meta').innerHTML = `<div class="card startcard">
+      <h2>${cur ? `count of ${countLabel(cur)} is finalized.` : 'no count yet.'}</h2>
+      <p>${cur ? `finalized${cur.finalizedBy ? ' by ' + esc(cur.finalizedBy) : ''}${cur.finalizedAt ? ' at ' + fmtStamp(cur.finalizedAt) : ''}. ${isAdmin() ? 'see it in count history. ' : ''}` : ''}start a new count whenever you take stock. pick the date the count is for.</p>
+      <div class="rowf"><input type="date" id="start-date" value="${todayKey()}" aria-label="count date"><button class="btn" id="start-count">start count <svg><use href="#i-arrow"/></svg></button></div>
+      ${cur ? `<button class="link" data-go="orders">view its order report</button>` : ''}</div>`;
+    $('#start-count').onclick = () => { const d = $('#start-date').value; if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { toast('pick a date'); return; } startCount(d); };
+    return;
+  }
+  $('#count-meta').innerHTML = `<div class="cmeta"><div class="when">count of ${countLabel(cur)}<small>started by ${esc(cur.startedBy || '—')}${cur.startedAt ? ' · ' + fmtDateTime(cur.startedAt) : ''}</small></div><div class="grow"></div>
+    <label style="font-size:12.5px;color:var(--ink-3);display:flex;align-items:center;gap:8px">count date <input type="date" id="cur-date" value="${esc(cur.date || '')}" aria-label="count date"></label></div>`;
+  $('#cur-date').onchange = async e => { const d = e.target.value; if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return; await updateDoc(doc(db, 'counts', cur.id), { date: d }); toast('count date updated'); };
+}
 function renderCount() {
+  renderCountMeta();
+  const open = countOpen();
+  $('#count-hd').hidden = !open; $('#count-body').hidden = !open; $('.stick', $('#s-count')).hidden = !open;
+  if (!open) { countSig = ''; return; }
   const c = counted(), n = items.length;
   $('#prog-lbl').textContent = `${c} of ${n} counted`; $('#prog-pct').textContent = (n ? Math.round(c / n * 100) : 0) + '%'; $('#prog-bar').style.width = (n ? c / n * 100 : 0) + '%';
   const areasUsed = AREAS().filter(a => items.some(i => i.area === a)).concat([...new Set(items.map(i => i.area).filter(a => !AREAS().includes(a)))]);
   if (areaFilter !== 'all' && !areasUsed.includes(areaFilter)) areaFilter = 'all';
   const areas = areaFilter === 'all' ? areasUsed : [areaFilter];
-  const sig = JSON.stringify([areaFilter, areasUsed, items.map(i => [i.id, i.name, i.area, i.par, i.unit, i.supplierId]), suppliers.map(s => [s.id, s.name])]);
+  const sig = JSON.stringify([cur.id, areaFilter, areasUsed, items.map(i => [i.id, i.name, i.area, i.par, i.unit, i.supplierId]), suppliers.map(s => [s.id, s.name])]);
   if (sig !== countSig) {
     countSig = sig;
     $('#area-chips').innerHTML = ['all', ...areasUsed].map(a => `<button class="chip" data-area="${esc(a)}" aria-pressed="${areaFilter === a}">${esc(a)}</button>`).join('');
@@ -317,32 +351,40 @@ function renderCount() {
   $$('#count-body .area').forEach(sec => { const rows = items.filter(i => i.area === sec.dataset.area); $('.cnt', sec).textContent = `${rows.filter(i => onHand(i) != null).length}/${rows.length}`; });
   const left = n - c;
   $('#stick-note').innerHTML = !n ? '' : left ? `<b>${left}</b> ${plural(left, 'item')} not yet counted. uncounted items are left off the order report.` : `all ${n} items counted. nice.`;
-  $('#reset-count').onclick = () => ask('clear today\'s count?', 'every item goes back to “not counted”. sent orders are kept.', async () => {
-    await setDoc(doc(db, 'counts', currentKey), { date: currentKey, entries: {}, clearedBy: me.name, clearedAt: serverTimestamp() }); toast('today\'s count cleared');
+  $('#reset-count').onclick = () => ask('clear this count?', 'every item goes back to “not counted”. sent orders are kept.', async () => {
+    await updateDoc(doc(db, 'counts', cur.id), { entries: {}, clearedBy: me.name, clearedAt: serverTimestamp() }); toast('count cleared');
   }, 'clear it');
 }
 async function setCount(it, v) {
-  const ref = doc(db, 'counts', currentKey);
+  if (!countOpen()) { toast('this count is finalized — start a new one'); return; }
+  const ref = doc(db, 'counts', cur.id);
   // optimistic local update so the row re-renders instantly
   if (v == null) delete count.entries[it.id]; else count.entries[it.id] = { on: v, par: it.par, by: me.name, at: new Date() };
   render();
   try {
-    await setDoc(ref, { date: currentKey, entries: { [it.id]: v == null ? deleteField() : { on: v, par: it.par, by: me.name, at: serverTimestamp() } } }, { merge: true });
+    await setDoc(ref, { entries: { [it.id]: v == null ? deleteField() : { on: v, par: it.par, by: me.name, at: serverTimestamp() } } }, { merge: true });
   } catch (e) { console.error(e); toast('couldn\'t save — check your connection'); }
 }
 
 /* ── orders ────────────────────────────────────────────────────────── */
 $('#show-all').onchange = e => { showAll = e.target.checked; renderOrders(); };
 function orderText(s, rows) {
-  const now = laNow();
   const hi = s.contact && s.contact !== '—' ? `hi ${s.contact}, ` : 'hi, ';
   const store = settings.storeName || SEED_SETTINGS.storeName, addr = settings.address || SEED_SETTINGS.address;
-  return `${hi}order for ${store} (${addr}) — ${fmtDay(dayPlus(0, now), { month: 'short', day: 'numeric' })}:\n`
+  return `${hi}order for ${store} (${addr}) — ${fmtDay(dayPlus(0), { month: 'short', day: 'numeric' })}:\n`
     + rows.map(i => `• ${cases(i)} × ${(i.unitsPerCase || 1) > 1 ? `case of ${i.unitsPerCase} ` : ''}${i.name} (${i.unit})${i.code ? ` · #${i.code}` : ''}`).join('\n')
     + `\n\n${settings.signoff || SEED_SETTINGS.signoff}`;
 }
 function sendLabel(m) { return { email: 'send via email', whatsapp: 'send via whatsapp', sms: 'send via text', phone: 'copy & call', portal: 'copy & open portal' }[m] || 'send'; }
+const managerEmails = () => (settings.managerEmails || []).filter(Boolean);
 function renderOrders() {
+  const open = countOpen();
+  $('#orders-sub').textContent = cur ? `count of ${countLabel(cur)}${cur.startedBy ? ' · counted by ' + [...new Set([cur.startedBy, ...Object.values(count.entries).map(e => e.by)].filter(Boolean))].join(', ') : ''}. order = par − on hand, rounded up to whole cases.` : 'order = par − on hand, rounded up to whole cases. grouped by supplier.';
+  $('#finalize').hidden = !open;
+  $('#orders-meta').innerHTML = !cur ? `<div class="card startcard"><h2>no count yet.</h2><p>start a count first; the order report is built from it.</p><button class="btn" data-go="count">go to count</button></div>`
+    : !open ? `<div class="fin"><svg width="16" height="16"><use href="#i-check"/></svg><span>finalized${cur.finalizedBy ? ' by ' + esc(cur.finalizedBy) : ''}${cur.finalizedAt ? ' at ' + fmtDateTime(cur.finalizedAt) : ''}${cur.managerEmails?.length ? ' · summary emailed to ' + esc(cur.managerEmails.join(', ')) : ' · no manager email set'}</span><button class="btn ghost sm" id="resend-summary"><svg><use href="#i-send"/></svg>email summary again</button></div>` : '';
+  const rs = $('#resend-summary'); if (rs) rs.onclick = () => openSummaryMail(cur.summary);
+  if (!cur) { $('#order-sum').innerHTML = ''; $('#orders-body').innerHTML = ''; return; }
   const groups = suppliers.map(s => ({ s, rows: items.filter(i => i.supplierId === s.id && (need(i) > 0 || (showAll && onHand(i) != null))) }));
   const toOrder = groups.filter(g => g.rows.some(i => need(i) > 0)), lines = items.filter(i => need(i) > 0);
   const totalCases = lines.reduce((a, i) => a + cases(i), 0);
@@ -357,10 +399,10 @@ function renderOrders() {
   $('#orders-body').innerHTML = suppliers.length ? groups.map(({ s, rows }) => {
     const any = rows.some(i => need(i) > 0), sent = todayOrders[s.id];
     const meta = `<div class="meta"><span>${METHODS[s.method] || s.method}${s.to ? ` · <b>${esc(s.to)}</b>` : ''}</span><span>delivers <b>${s.deliveryDays?.length ? s.deliveryDays.map(d => DAYS[d]).join(' · ') : 'on request'}</b></span>${s.cutoffTime ? `<span>cut-off <b>${fmtTime(s.cutoffTime)} ${['same day', 'day before', 'two days before'][s.cutoffOffset ?? 1]}</b></span>` : ''}</div>`;
-    if (!any) return `<div class="card sup clear"><div class="hd"><div><h2>${esc(s.name)}</h2>${meta}</div><span class="pill ok"><i class="dot"></i>fully stocked</span></div><div class="none"><svg width="16" height="16"><use href="#i-check"/></svg>nothing to order from ${esc(s.name)} today.</div></div>`;
+    if (!any) return `<div class="card sup clear"><div class="hd"><div><h2>${esc(s.name)}</h2>${meta}</div><span class="pill ok"><i class="dot"></i>fully stocked</span></div><div class="none"><svg width="16" height="16"><use href="#i-check"/></svg>nothing to order from ${esc(s.name)}.</div></div>`;
     const need_ = rows.filter(i => need(i) > 0), sc = need_.reduce((a, i) => a + cases(i), 0), cost = need_.filter(i => i.casePrice != null).reduce((a, i) => a + lineCost(i), 0);
     return `<div class="card sup" data-sup="${s.id}">
-      <div class="hd"><div><h2>${esc(s.name)}</h2>${meta}${sent ? `<div class="sent-by" style="margin-top:8px"><svg width="14" height="14"><use href="#i-check"/></svg>sent by ${esc(sent.sentBy)} at ${fmtStamp(sent.sentAt)} · ${sent.totalCases} ${plural(sent.totalCases, 'case')}</div>` : ''}</div>
+      <div class="hd"><div><h2>${esc(s.name)}</h2>${meta}${sent ? `<div class="sent-by" style="margin-top:8px"><svg width="14" height="14"><use href="#i-check"/></svg>sent by ${esc(sent.sentBy)} at ${fmtDateTime(sent.sentAt)} · ${sent.totalCases} ${plural(sent.totalCases, 'case')}</div>` : ''}</div>
         <div class="acts"><button class="btn ghost sm" data-copy="${s.id}"><svg><use href="#i-copy"/></svg>copy order</button><button class="btn sm ${sent ? 'ghost' : ''}" data-send="${s.id}"><svg><use href="#i-send"/></svg>${sent ? 'send again' : sendLabel(s.method)}</button></div></div>
       <div class="scrollx"><table class="ot"><thead><tr><th>item</th><th class="r">on hand</th><th class="r hide-m">par</th><th class="r hide-m">short</th><th class="r">order</th><th class="r hide-m">cost</th></tr></thead><tbody>
         ${rows.map(i => need(i) > 0 ? `<tr><td><b style="font-weight:500">${esc(i.name)}</b><div class="muted" style="font-size:12px">${esc(i.unit)}${(i.unitsPerCase || 1) > 1 ? ' · case of ' + i.unitsPerCase : ''}${i.code ? ' · #' + esc(i.code) : ''}<span class="hide-d"> · par ${i.par}${i.casePrice != null ? ' · ' + money(lineCost(i)) : ''}</span></div></td><td class="r n" style="color:${onHand(i) === 0 ? 'var(--out)' : 'inherit'}">${onHand(i)}</td><td class="r n hide-m">${i.par}</td><td class="r n hide-m">${need(i)}</td><td class="r"><span class="oq">${cases(i)}<small>${(i.unitsPerCase || 1) > 1 ? plural(cases(i), 'case') + ' · ' + cases(i) * i.unitsPerCase + ' units' : plural(cases(i), 'unit')}</small></span></td><td class="r n hide-m cost">${money(lineCost(i))}</td></tr>`
@@ -377,7 +419,12 @@ async function copyOrder(s) {
   toast((await copyText(orderText(s, rows))) ? `order copied for ${s.name}` : 'copy blocked by the browser');
 }
 const digits = v => (v || '').replace(/[^\d+]/g, '').replace(/^\+/, '');
+const isApple = () => /iphone|ipad|mac/i.test(navigator.userAgent);
+function supplierLines(s) {
+  return items.filter(i => i.supplierId === s.id && need(i) > 0).map(i => ({ itemId: i.id, name: i.name, code: i.code || '', unit: i.unit, unitsPerCase: i.unitsPerCase || 1, onHand: onHand(i), par: i.par, cases: cases(i), units: cases(i) * (i.unitsPerCase || 1), casePrice: i.casePrice ?? null, cost: lineCost(i) }));
+}
 async function sendOrder(s) {
+  if (!cur) return;
   const rows = items.filter(i => i.supplierId === s.id && need(i) > 0);
   if (!rows.length) return;
   const text = orderText(s, rows), enc = encodeURIComponent(text);
@@ -387,16 +434,52 @@ async function sendOrder(s) {
   switch (s.method) {
     case 'email': href = `mailto:${encodeURIComponent(s.to || '')}?subject=${subj}&body=${enc}`; break;
     case 'whatsapp': href = `https://wa.me/${digits(s.to)}?text=${enc}`; break;
-    case 'sms': href = `sms:${(s.to || '').replace(/\s/g, '')}${/iphone|ipad|mac/i.test(navigator.userAgent) ? '&' : '?'}body=${enc}`; break;
+    case 'sms': href = `sms:${(s.to || '').replace(/\s/g, '')}${isApple() ? '&' : '?'}body=${enc}`; break;
     case 'phone': await copyText(text); href = s.to ? `tel:${(s.to || '').replace(/\s/g, '')}` : null; note = 'order copied · '; break;
     case 'portal': await copyText(text); href = s.to && /^(https?:\/\/|[\w.-]+\.[a-z]{2,})/i.test(s.to) ? (s.to.startsWith('http') ? s.to : 'https://' + s.to) : null; note = 'order copied · '; break;
   }
   if (href) { if (s.method === 'whatsapp' || s.method === 'portal') window.open(href, '_blank', 'noopener'); else location.href = href; }
-  const lines = rows.map(i => ({ itemId: i.id, name: i.name, code: i.code || '', unit: i.unit, unitsPerCase: i.unitsPerCase || 1, onHand: onHand(i), par: i.par, cases: cases(i), units: cases(i) * (i.unitsPerCase || 1), casePrice: i.casePrice ?? null, cost: lineCost(i) }));
-  const order = { date: currentKey, supplierId: s.id, supplierName: s.name, method: s.method, to: s.to || '', lines, totalCases: lines.reduce((a, l) => a + l.cases, 0), totalCost: lines.reduce((a, l) => a + (l.cost || 0), 0), unpriced: lines.filter(l => l.cost == null).length, text, sentBy: me.name, sentByEmail: me.email, sentAt: serverTimestamp() };
-  try { await setDoc(doc(db, 'orders', `${currentKey}_${s.id}`), order); toast(`${note}order to ${s.name} logged as sent`); }
+  const lines = supplierLines(s);
+  const order = { countId: cur.id, date: cur.date, supplierId: s.id, supplierName: s.name, method: s.method, to: s.to || '', lines, totalCases: lines.reduce((a, l) => a + l.cases, 0), totalCost: lines.reduce((a, l) => a + (l.cost || 0), 0), unpriced: lines.filter(l => l.cost == null).length, text, sentBy: me.name, sentByEmail: me.email, sentAt: serverTimestamp() };
+  try { await setDoc(doc(db, 'orders', `${cur.id}_${s.id}`), order); toast(`${note}order to ${s.name} logged as sent`); }
   catch (e) { console.error(e); toast('couldn\'t log the order — check your connection'); }
 }
+
+/* Finalize: close the count, snapshot every supplier order, and email the
+   order manager(s) one summary. The email opens in the user's mail app. */
+function buildSummary() {
+  const sups = orderedGroups().map(({ s }) => { const lines = supplierLines(s); return { supplierId: s.id, name: s.name, method: s.method, to: s.to || '', lines, totalCases: lines.reduce((a, l) => a + l.cases, 0), totalCost: lines.reduce((a, l) => a + (l.cost || 0), 0), unpriced: lines.filter(l => l.cost == null).length, sent: !!todayOrders[s.id] }; });
+  const es = Object.values(count.entries);
+  return { suppliers: sups, totalCases: sups.reduce((a, x) => a + x.totalCases, 0), totalCost: sups.reduce((a, x) => a + x.totalCost, 0), unpriced: sups.reduce((a, x) => a + x.unpriced, 0),
+    counted: es.length, total: items.length, low: es.filter(e => e.on > 0 && e.on < (e.par ?? 0)).length, out: es.filter(e => e.on === 0).length,
+    countedBy: [...new Set(es.map(e => e.by).filter(Boolean))], notCounted: items.filter(i => onHand(i) == null).map(i => i.name) };
+}
+function summaryText(sum, c = cur) {
+  const store = settings.storeName || SEED_SETTINGS.storeName;
+  const head = `order summary — ${store}\ncount of ${countLabel(c)}${sum.countedBy.length ? ' · counted by ' + sum.countedBy.join(', ') : ''}\n${sum.counted} of ${sum.total} items counted · ${sum.low} below par · ${sum.out} out of stock\n`;
+  const body = sum.suppliers.length ? sum.suppliers.map(x => `\n${x.name.toUpperCase()}${x.to ? ` (${METHODS[x.method] || x.method} · ${x.to})` : ''} — ${x.totalCases} ${plural(x.totalCases, 'case')} · ${money(x.totalCost)}${x.unpriced ? ` + ${x.unpriced} unpriced` : ''}${x.sent ? ' · sent' : ' · not yet sent'}\n`
+    + x.lines.map(l => `  • ${l.cases} × ${l.unitsPerCase > 1 ? `case of ${l.unitsPerCase} ` : ''}${l.name}${l.code ? ` #${l.code}` : ''} — on hand ${l.onHand}, par ${l.par}${l.cost != null ? ` — ${money(l.cost)}` : ''}`).join('\n')).join('\n') : '\nnothing to order — everything counted is at par.';
+  const foot = `\n\nTOTAL: ${sum.totalCases} ${plural(sum.totalCases, 'case')} · ${money(sum.totalCost)}${sum.unpriced ? ` + ${sum.unpriced} unpriced ${plural(sum.unpriced, 'item')}` : ''}`
+    + (sum.notCounted?.length ? `\n\nnot counted (${sum.notCounted.length}): ${sum.notCounted.join(', ')}` : '') + `\n\n${settings.signoff || SEED_SETTINGS.signoff}`;
+  return head + body + foot;
+}
+function openSummaryMail(sum, c = cur) {
+  const to = managerEmails(); if (!to.length || !sum) { toast('no manager email set — add one in settings'); return; }
+  const store = settings.storeName || SEED_SETTINGS.storeName;
+  location.href = `mailto:${encodeURIComponent(to.join(','))}?subject=${encodeURIComponent(`${store} order summary — ${countLabel(c)}`)}&body=${encodeURIComponent(summaryText(sum, c))}`;
+}
+$('#finalize').onclick = () => {
+  if (!countOpen()) return;
+  const to = managerEmails(), pending = items.filter(i => onHand(i) == null).length;
+  ask('finalize this count?', `the count closes and can't be edited. ${to.length ? `one email with the full order summary opens for ${to.join(', ')}.` : 'no order manager email is set in settings, so no email will be sent.'}${pending ? ` ${pending} ${plural(pending, 'item')} ${pending === 1 ? 'is' : 'are'} still not counted and will be left off.` : ''}`, async () => {
+    const summary = buildSummary();
+    try {
+      await updateDoc(doc(db, 'counts', cur.id), { status: 'finalized', finalizedAt: serverTimestamp(), finalizedBy: me.name, finalizedByEmail: me.email, managerEmails: to, summary });
+      if (to.length) openSummaryMail(summary, { ...cur, summary });
+      toast('count finalized');
+    } catch (e) { console.error(e); toast('couldn\'t finalize: ' + (e.code || e.message)); }
+  }, 'finalize');
+};
 
 /* ── items (admin) ─────────────────────────────────────────────────── */
 $('#item-q').oninput = renderItems; $('#item-sup').onchange = renderItems;
@@ -503,41 +586,45 @@ async function loadHistory(force = false) {
   try {
     const since = laNow(new Date(Date.now() - 60 * 864e5)).key;
     const [c, o] = await Promise.all([
-      getDocs(query(collection(db, 'counts'), where('date', '>=', since), orderBy('date', 'desc'), limit(60))),
+      getDocs(query(collection(db, 'counts'), orderBy('startedAt', 'desc'), limit(60))),
       getDocs(query(collection(db, 'orders'), where('date', '>=', since))),
     ]);
-    hist = { counts: c.docs.map(d => ({ id: d.id, ...d.data() })), orders: o.docs.map(d => ({ id: d.id, ...d.data() })), loadedAt: Date.now(), loading: false };
+    hist = { counts: c.docs.map(d => ({ id: d.id, entries: {}, ...d.data() })), orders: o.docs.map(d => ({ id: d.id, ...d.data() })), loadedAt: Date.now(), loading: false };
   } catch (e) { console.error(e); hist.loading = false; toast('couldn\'t load history: ' + (e.code || e.message)); }
   if (screen === 'history') render();
 }
 function daySummary(cnt, ords) {
   const es = Object.values(cnt?.entries || {});
-  const by = [...new Set(es.map(e => e.by).filter(Boolean))];
-  const last = es.map(e => e.at?.toDate?.()).filter(Boolean).sort((a, b) => b - a)[0];
-  return { n: es.length, by, last, low: es.filter(e => e.on > 0 && e.on < (e.par ?? 0)).length, out: es.filter(e => e.on === 0).length, ords, cost: ords.reduce((a, o) => a + (o.totalCost || 0), 0) };
+  const by = [...new Set([cnt?.startedBy, ...es.map(e => e.by)].filter(Boolean))];
+  return { n: es.length, by, low: es.filter(e => e.on > 0 && e.on < (e.par ?? 0)).length, out: es.filter(e => e.on === 0).length, ords, cost: ords.reduce((a, o) => a + (o.totalCost || 0), 0) };
 }
 function renderHistory() {
-  // merge today's live data with the loaded history
-  const byDate = new Map(hist.counts.map(c => [c.date || c.id, c]));
-  if (count.date) byDate.set(count.date, count);
-  const ordersByDate = {};
-  [...hist.orders.filter(o => o.date !== currentKey), ...Object.values(todayOrders)].forEach(o => (ordersByDate[o.date] ||= []).push(o));
-  Object.keys(ordersByDate).forEach(d => { if (!byDate.has(d)) byDate.set(d, { date: d, entries: {} }); });
-  const days = [...byDate.keys()].sort().reverse().filter(d => Object.keys(byDate.get(d).entries || {}).length || ordersByDate[d]);
-  $('#hist-body').innerHTML = days.length ? days.map(d => {
-    const s = daySummary(byDate.get(d), ordersByDate[d] || []), dt = keyToDate(d);
-    return `<tr><td style="font-weight:500">${d === currentKey ? 'today' : fmtDay(dt, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>${esc(s.by.join(', ')) || '—'}</td><td class="muted hide-m">${s.last ? fmtStamp(s.last) : '—'}</td><td class="r num">${s.n}</td><td class="r num" style="color:${s.low ? 'var(--low)' : 'inherit'}">${s.low}</td><td class="r num" style="color:${s.out ? 'var(--out)' : 'inherit'}">${s.out}</td><td class="muted hide-m" style="font-size:13px">${esc(s.ords.map(o => o.supplierName).join(' · ')) || '—'}</td><td class="r num hide-m">${s.ords.length ? money(s.cost) : '—'}</td><td class="r"><button class="link" data-rep="${d}">view</button></td></tr>`;
+  // merge the live current count with the loaded history
+  const byId = new Map(hist.counts.map(c => [c.id, c]));
+  if (cur) byId.set(cur.id, cur);
+  const ordersByCount = {};
+  [...hist.orders.filter(o => o.countId !== cur?.id), ...Object.values(todayOrders)].forEach(o => (ordersByCount[o.countId] ||= []).push(o));
+  const list = [...byId.values()].sort((a, b) => (b.startedAt?.toDate?.() || 0) - (a.startedAt?.toDate?.() || 0));
+  $('#hist-body').innerHTML = list.length ? list.map(c => {
+    const s = daySummary(c, ordersByCount[c.id] || []), open = c.status === 'open';
+    return `<tr><td style="font-weight:500">${countLabel(c)}${c.id === cur?.id ? ' <span class="muted" style="font-weight:400;font-size:12px">· current</span>' : ''}</td><td>${esc(s.by.join(', ')) || '—'}</td><td class="hide-m">${open ? '<span class="pill low">open</span>' : `<span class="pill ok">finalized</span> <span class="muted" style="font-size:12px">${esc(c.finalizedBy || '')}</span>`}</td><td class="r num">${s.n}</td><td class="r num" style="color:${s.low ? 'var(--low)' : 'inherit'}">${s.low}</td><td class="r num" style="color:${s.out ? 'var(--out)' : 'inherit'}">${s.out}</td><td class="muted hide-m" style="font-size:13px">${esc(s.ords.map(o => o.supplierName).join(' · ')) || '—'}</td><td class="r num hide-m">${c.summary ? money(c.summary.totalCost) : s.ords.length ? money(s.cost) : '—'}</td><td class="r"><button class="link" data-rep="${c.id}">view</button></td></tr>`;
   }).join('') : `<tr><td colspan="9" class="muted" style="padding:24px 16px">${hist.loading ? 'loading…' : 'no counts yet.'}</td></tr>`;
-  $$('[data-rep]').forEach(b => b.onclick = () => openReport(b.dataset.rep, byDate.get(b.dataset.rep), ordersByDate[b.dataset.rep] || []));
+  $$('[data-rep]').forEach(b => b.onclick = () => openReport(byId.get(b.dataset.rep), ordersByCount[b.dataset.rep] || []));
 }
-function openReport(d, cnt, ords) {
+function openReport(cnt, ords) {
   const s = daySummary(cnt, ords);
-  $('#rep-title').textContent = d === currentKey ? 'today' : fmtDay(keyToDate(d), { weekday: 'long', month: 'long', day: 'numeric' });
-  $('#rep-sub').textContent = `${s.n} ${plural(s.n, 'item')} counted${s.by.length ? ' by ' + s.by.join(', ') : ''} · ${s.low} below par · ${s.out} out`;
+  $('#rep-title').textContent = `count of ${countLabel(cnt)}`;
+  $('#rep-sub').textContent = `${s.n} ${plural(s.n, 'item')} counted${s.by.length ? ' by ' + s.by.join(', ') : ''} · ${s.low} below par · ${s.out} out${cnt.status === 'finalized' ? ` · finalized${cnt.finalizedBy ? ' by ' + cnt.finalizedBy : ''}${cnt.finalizedAt ? ' ' + fmtDateTime(cnt.finalizedAt) : ''}` : ' · still open'}`;
   const es = Object.entries(cnt?.entries || {}).map(([id, e]) => ({ id, ...e, name: items.find(i => i.id === id)?.name || ords.flatMap(o => o.lines).find(l => l.itemId === id)?.name || 'removed item' }));
   const short = es.filter(e => e.on < (e.par ?? 0)).sort((a, b) => (a.on / (a.par || 1)) - (b.on / (b.par || 1)));
-  $('#rep-body').innerHTML = (ords.length ? ords.map(o => `<div class="report-day"><h3>${esc(o.supplierName)} <span class="muted" style="font-weight:400;font-size:12.5px">· sent by ${esc(o.sentBy)} at ${fmtStamp(o.sentAt)} via ${METHODS[o.method] || esc(o.method)}</span></h3><ul>${o.lines.map(l => `<li><span>${l.cases} × ${l.unitsPerCase > 1 ? `case of ${l.unitsPerCase} ` : ''}${esc(l.name)}${l.code ? ` <span class="muted">#${esc(l.code)}</span>` : ''}</span><span class="num">${money(l.cost)}</span></li>`).join('')}<li style="font-weight:600"><span>${o.totalCases} ${plural(o.totalCases, 'case')}</span><span class="num">${money(o.totalCost)}${o.unpriced ? ` <span class="muted" style="font-weight:400">+ ${o.unpriced} unpriced</span>` : ''}</span></li></ul></div>`).join('') : '<p class="muted" style="font-size:13.5px;margin-top:8px">no orders were sent this day.</p>')
-    + `<div class="report-day"><h3>below par at count time</h3>${short.length ? `<ul>${short.map(e => `<li><span>${esc(e.name)}</span><span class="num" style="color:${e.on === 0 ? 'var(--out)' : 'var(--low)'}">${e.on} / ${e.par ?? '?'}</span></li>`).join('')}</ul>` : '<p class="muted" style="font-size:13.5px">everything counted was at par.</p>'}</div>`;
+  const sum = cnt.summary;
+  const block = (title, lines, tot) => `<div class="report-day"><h3>${title}</h3><ul>${lines.map(l => `<li><span>${l.cases} × ${l.unitsPerCase > 1 ? `case of ${l.unitsPerCase} ` : ''}${esc(l.name)}${l.code ? ` <span class="muted">#${esc(l.code)}</span>` : ''}</span><span class="num">${money(l.cost)}</span></li>`).join('')}<li style="font-weight:600"><span>${tot.totalCases} ${plural(tot.totalCases, 'case')}</span><span class="num">${money(tot.totalCost)}${tot.unpriced ? ` <span class="muted" style="font-weight:400">+ ${tot.unpriced} unpriced</span>` : ''}</span></li></ul></div>`;
+  $('#rep-body').innerHTML =
+    (sum ? `<p class="muted" style="font-size:13px;margin-top:6px">finalized order summary${cnt.managerEmails?.length ? ' · emailed to ' + esc(cnt.managerEmails.join(', ')) : ''}</p>` + (sum.suppliers.length ? sum.suppliers.map(x => { const o = ords.find(y => y.supplierId === x.supplierId); return block(`${esc(x.name)} <span class="muted" style="font-weight:400;font-size:12.5px">· ${o ? `sent by ${esc(o.sentBy)} ${fmtDateTime(o.sentAt)} via ${METHODS[o.method] || esc(o.method)}` : 'not sent'}</span>`, x.lines, x); }).join('') : '<p class="muted" style="font-size:13.5px;margin-top:8px">nothing needed ordering.</p>')
+      : (ords.length ? ords.map(o => block(`${esc(o.supplierName)} <span class="muted" style="font-weight:400;font-size:12.5px">· sent by ${esc(o.sentBy)} ${fmtDateTime(o.sentAt)} via ${METHODS[o.method] || esc(o.method)}</span>`, o.lines, o)).join('') : '<p class="muted" style="font-size:13.5px;margin-top:8px">no orders were sent for this count.</p>'))
+    + `<div class="report-day"><h3>below par at count time</h3>${short.length ? `<ul>${short.map(e => `<li><span>${esc(e.name)}</span><span class="num" style="color:${e.on === 0 ? 'var(--out)' : 'var(--low)'}">${e.on} / ${e.par ?? '?'}</span></li>`).join('')}</ul>` : '<p class="muted" style="font-size:13.5px">everything counted was at par.</p>'}</div>`
+    + (sum && managerEmails().length ? `<div style="margin-top:14px"><button class="btn ghost sm" id="rep-mail"><svg><use href="#i-send"/></svg>email this summary to the manager</button></div>` : '');
+  const rm = $('#rep-mail'); if (rm) rm.onclick = () => openSummaryMail(sum, cnt);
   $('#rep-ov').classList.add('on');
 }
 
@@ -568,6 +655,7 @@ $('#team-add').onsubmit = async e => {
 function renderSettings() {
   if (document.activeElement?.closest('#store-form') == null) {
     $('#st-name').value = settings.storeName || ''; $('#st-addr').value = settings.address || ''; $('#st-city').value = settings.city || ''; $('#st-sign').value = (settings.signoff || '').replace(/\n/g, ' ');
+    $('#st-managers').value = (settings.managerEmails || []).join('\n');
   }
   const areas = AREAS();
   $('#area-list').innerHTML = settings.areas?.length ? settings.areas.map((a, i) => { const n = items.filter(x => x.area === a).length; return `<li><div class="name">${esc(a)}<small>${n} ${plural(n, 'item')}</small></div>
@@ -599,8 +687,9 @@ $('#area-add').onsubmit = async e => {
 };
 $('#store-form').onsubmit = async e => {
   e.preventDefault();
-  await setDoc(doc(db, 'settings', 'main'), { storeName: $('#st-name').value.trim().toLowerCase(), address: $('#st-addr').value.trim().toLowerCase(), city: $('#st-city').value.trim().toLowerCase(), signoff: $('#st-sign').value.trim(), updatedBy: me.email, updatedAt: serverTimestamp() }, { merge: true });
-  toast('store saved');
+  const managerEmails = [...new Set($('#st-managers').value.split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(x => x.includes('@')))];
+  await setDoc(doc(db, 'settings', 'main'), { storeName: $('#st-name').value.trim().toLowerCase(), address: $('#st-addr').value.trim().toLowerCase(), city: $('#st-city').value.trim().toLowerCase(), signoff: $('#st-sign').value.trim(), managerEmails, updatedBy: me.email, updatedAt: serverTimestamp() }, { merge: true });
+  toast(managerEmails.length ? `store saved · ${managerEmails.length} manager ${plural(managerEmails.length, 'email')}` : 'store saved · no manager email set');
 };
 $('#seed-btn').onclick = () => ask('load the starter list?', `${SEED_ITEMS.length} items and ${SEED_SUPPLIERS.length} suppliers from the preliminary sheet. par levels start at one case each — set the real ones afterwards.`, async () => {
   const b = writeBatch(db);

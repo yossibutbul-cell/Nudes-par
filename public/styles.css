@@ -442,3 +442,20 @@
     .inline-add input{min-width:0;width:100%}
     .modal .scrollbody{max-height:70vh}
   }
+
+  /* ── sporadic counts ─────────────────────────────────────────────── */
+  .cmeta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:12px 18px;margin-bottom:16px}
+  .cmeta .when{font-family:var(--display);font-weight:600;font-size:17px}
+  .cmeta .when small{display:block;font-family:var(--body);font-weight:400;font-size:12.5px;color:var(--ink-3);margin-top:2px}
+  .cmeta .grow{flex:1}
+  .cmeta input[type=date]{border:1px solid var(--line-strong);background:var(--bg);border-radius:var(--pill);padding:6px 12px;font-size:13.5px;outline:none;color:var(--ink)}
+  .cmeta input[type=date]:focus{border-color:var(--taupe)}
+  .cmeta .lock{display:inline-flex;align-items:center;gap:6px;color:var(--ok);font-size:13px}
+  .startcard{padding:34px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
+  .startcard h2{font-size:24px}
+  .startcard p{color:var(--ink-2);max-width:46ch}
+  .startcard .rowf{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;margin-top:6px}
+  .startcard input[type=date]{border:1px solid var(--line-strong);background:var(--bg);border-radius:var(--pill);padding:9px 14px;font-size:14.5px;outline:none;color:var(--ink)}
+  .fin{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--ok-bg);color:var(--ok);border-radius:14px;padding:12px 16px;font-size:13.5px;margin-bottom:16px}
+  .fin .btn{margin-left:auto}
+  @media (max-width:880px){ .cmeta{padding:12px 14px} .toolbar #finalize{width:100%} .fin .btn{margin-left:0;width:100%;justify-content:center} }
