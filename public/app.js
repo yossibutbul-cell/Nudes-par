@@ -548,6 +548,7 @@ function syncSelect(sel, html) { if (sel.innerHTML !== html) { const v = sel.val
 function itemRow(i) {
   return `<tr>
     <td class="name">${esc(i.name)}${i.code ? `<span class="muted" style="font-weight:400;font-size:12px"> · #${esc(i.code)}</span>` : ''}<small class="hide-d">${esc(supById(i.supplierId).name)} · ${esc(i.area)}${ozPrice(i) != null ? ' · ' + money4(ozPrice(i)) + '/oz' : ''}</small>${i.category ? `<small class="hide-m">${esc(i.category)}</small>` : ''}${i.tags?.length ? `<div class="hide-m">${i.tags.map(t => `<span class="tag">${esc(tagLabel(t))}</span>`).join('')}</div>` : ''}</td>
+    <td class="hide-m"><select class="catsel" data-cat="${i.id}" aria-label="category for ${esc(i.name)}">${[...CATS(), ...(CATS().includes(i.group) ? [] : ['uncategorized'])].map(c => `<option value="${esc(c)}" ${catOf(i) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></td>
     <td class="muted hide-m">${esc(i.area)}</td><td class="hide-m">${esc(supById(i.supplierId).name)}</td><td class="muted hide-m">${esc(i.unit)}${(i.unitsPerCase || 1) > 1 ? ' · case of ' + i.unitsPerCase : ''}${i.weightOz ? ` · ${i.weightOz} oz` : ''}</td>
     <td class="r n hide-m" style="font-weight:500">${money(i.casePrice)}</td><td class="r n hide-m" style="font-weight:500">${money(unitPrice(i))}</td><td class="r n hide-m" style="font-weight:500">${money4(ozPrice(i))}</td>
     <td class="r"><span class="parbox" data-id="${i.id}"><button type="button" data-d="-1" aria-label="lower par">−</button><input type="number" min="0" value="${i.par}" aria-label="par level"><button type="button" data-d="1" aria-label="raise par">+</button></span></td>
@@ -563,13 +564,19 @@ function renderItems() {
   $('#item-n').textContent = `${rows.length} of ${items.length} items`;
   $('#items-body').innerHTML = rows.length ? groups.filter(g => cf === 'all' || g === cf).map(g => {
     const its = rows.filter(i => catOf(i) === g).sort((a, b) => a.name.localeCompare(b.name));
-    return its.length ? `<tr class="grp-row"><td colspan="10">${esc(g)}<small>${its.length} ${plural(its.length, 'item')}</small></td></tr>` + its.map(itemRow).join('') : '';
+    return its.length ? `<tr class="grp-row"><td colspan="11">${esc(g)}<small>${its.length} ${plural(its.length, 'item')}</small></td></tr>` + its.map(itemRow).join('') : '';
   }).join('')
-    : `<tr><td colspan="10" class="muted" style="padding:24px 16px">${items.length ? 'no items match.' : 'no items yet. add one, or load the starter list in settings.'}</td></tr>`;
+    : `<tr><td colspan="11" class="muted" style="padding:24px 16px">${items.length ? 'no items match.' : 'no items yet. add one, or load the starter list in settings.'}</td></tr>`;
   $$('.parbox').forEach(pb => {
     const it = items.find(i => i.id === pb.dataset.id), inp = $('input', pb);
     const set = async v => { const par = Math.max(0, Math.round(+v) || 0); it.par = par; render(); await updateDoc(doc(db, 'items', it.id), { par, updatedAt: serverTimestamp() }); };
     $$('button', pb).forEach(b => b.onclick = () => set(it.par + +b.dataset.d)); inp.onchange = () => set(inp.value);
+  });
+  $$('.catsel').forEach(sel => sel.onchange = async () => {
+    const it = items.find(i => i.id === sel.dataset.cat), g = sel.value; if (!it || g === 'uncategorized') return;
+    it.group = g; sel.blur(); render();
+    try { await updateDoc(doc(db, 'items', it.id), { group: g, updatedAt: serverTimestamp(), updatedBy: me.email }); toast(`${it.name} → ${g}`); }
+    catch (e) { console.error(e); toast('couldn\'t save: ' + (e.code || e.message)); }
   });
   $$('[data-edit]').forEach(b => b.onclick = () => openItem(items.find(i => i.id === b.dataset.edit)));
   $$('[data-del]').forEach(b => b.onclick = () => { const it = items.find(i => i.id === b.dataset.del); ask(`remove ${it.name}?`, 'it disappears from the count and the order report. past counts keep their history.', async () => { await deleteDoc(doc(db, 'items', it.id)); toast(`removed ${it.name}`); }, 'remove'); });

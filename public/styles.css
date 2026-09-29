@@ -472,3 +472,5 @@
   .it tr.grp-row td{background:var(--surface-2);font-family:var(--display);font-weight:600;font-size:13.5px;color:var(--ink-2);padding:8px 16px;border-top:1px solid var(--line-strong)}
   .it tr.grp-row td small{font-family:var(--body);font-weight:400;color:var(--ink-3);font-size:12px;margin-left:6px}
   .it tr.grp-row + tr td{border-top:0}
+  .it select.catsel{border:1px solid var(--line-strong);background:var(--bg);border-radius:var(--pill);padding:5px 10px;font-size:12.5px;outline:none;color:var(--ink);max-width:170px;cursor:pointer}
+  .it select.catsel:focus{border-color:var(--taupe)}
