@@ -331,7 +331,7 @@ function renderToday() {
     <div class="card stat"><div class="eyebrow">next delivery</div><div class="v" style="font-size:24px;padding-top:4px">${nd ? (relDay(nd.d.n) || fmtDay(nd.d.deliver, { weekday: 'long' })) : '—'}</div><div class="d">${nd ? esc(nd.s.name) + (nd.s.cutoffTime ? ` · order by ${fmtTime(nd.s.cutoffTime)} ${relDay(nd.d.cutOff) || fmtDay(nd.d.cutoffDay, { weekday: 'short' })}` : '') : 'no delivery days set'}</div></div>`;
   const top = below.sort((a, b) => (onHand(a) / (a.par || 1)) - (onHand(b) / (b.par || 1))).slice(0, 6);
   $('#bp-note').textContent = below.length > 6 ? `showing 6 of ${below.length}` : (cur ? `count of ${countLabel(cur)}` : '');
-  $('#bp-list').innerHTML = top.length ? top.map(i => `<li><div class="name">${esc(i.name)}<small>${esc(supById(i.supplierId).name)} · par ${i.par}</small></div><span class="num muted" style="font-size:13px">${fmtQty(onHand(i))} / ${i.par}</span>${statusPill(i)}</li>`).join('')
+  $('#bp-list').innerHTML = top.length ? top.map(i => `<li><div class="name">${esc(i.name)}<small>${esc(supById(i.supplierId).name)} · par ${fmtQty(i.par)}</small></div><span class="num muted" style="font-size:13px">${fmtQty(onHand(i))} / ${fmtQty(i.par)}</span>${statusPill(i)}</li>`).join('')
     : `<li class="muted" style="padding:16px 18px">${c ? 'everything counted so far is at par.' : 'start a count to see what\'s short.'}</li>`;
   const sched = suppliers.map(s => ({ s, d: nextDelivery(s, now) })).sort((a, b) => (a.d ? a.d.n : 99) - (b.d ? b.d.n : 99));
   $('#sched').innerHTML = sched.length ? sched.map(({ s, d }) => {
@@ -380,8 +380,8 @@ function renderCount() {
       const rows = items.filter(i => i.area === a);
       return `<section class="area" data-area="${esc(a)}"><h3>${esc(a)}<span class="cnt"></span></h3><div class="card rows">${rows.map(i => `
         <div class="row" data-row="${i.id}">
-          <div class="name">${esc(i.name)}<small>${esc(supById(i.supplierId).name)} · ${esc(i.unit)}<span class="hide-d"> · <b style="color:var(--ink-2);font-weight:600">par ${i.par}</b></span></small></div>
-          <div class="par">par<b>${i.par}</b></div>
+          <div class="name">${esc(i.name)}<small>${esc(supById(i.supplierId).name)} · ${esc(i.unit)}<span class="hide-d"> · <b style="color:var(--ink-2);font-weight:600">par ${fmtQty(i.par)}</b></span></small></div>
+          <div class="par">par<b>${fmtQty(i.par)}</b></div>
           <div class="step" data-id="${i.id}"><button type="button" data-d="-1" aria-label="minus one">−</button><input type="text" inputmode="decimal" autocomplete="off" placeholder="—" aria-label="on hand"><button type="button" data-d="1" aria-label="plus one">+</button></div>
           <div class="frac" data-id="${i.id}" role="group" aria-label="partial unit"><button type="button" data-f="0.25" aria-label="and a quarter">¼</button><button type="button" data-f="0.5" aria-label="and a half">½</button><button type="button" data-f="0.75" aria-label="and three quarters">¾</button></div>
           <div class="st"></div>
@@ -466,8 +466,8 @@ function renderOrders() {
       <div class="hd"><div><h2>${esc(s.name)}</h2>${meta}${sent ? `<div class="sent-by" style="margin-top:8px"><svg width="14" height="14"><use href="#i-check"/></svg>sent by ${esc(sent.sentBy)} at ${fmtDateTime(sent.sentAt)} · ${sent.totalCases} ${plural(sent.totalCases, 'case')}</div>` : ''}</div>
         <div class="acts"><button class="btn ghost sm" data-copy="${s.id}"><svg><use href="#i-copy"/></svg>copy order</button><button class="btn sm ${sent ? 'ghost' : ''}" data-send="${s.id}"><svg><use href="#i-send"/></svg>${sent ? 'send again' : sendLabel(s.method)}</button></div></div>
       <div class="scrollx"><table class="ot"><thead><tr><th>item</th><th class="r">on hand</th><th class="r hide-m">par</th><th class="r hide-m">short</th><th class="r">order</th><th class="r hide-m">cost</th></tr></thead><tbody>
-        ${rows.map(i => need(i) > 0 ? `<tr><td><b style="font-weight:500">${esc(i.name)}</b><div class="muted" style="font-size:12px">${esc(i.unit)}${(i.unitsPerCase || 1) > 1 ? ' · case of ' + i.unitsPerCase : ''}${i.code ? ' · #' + esc(i.code) : ''}<span class="hide-d"> · par ${i.par}${i.casePrice != null ? ' · ' + money(lineCost(i)) : ''}</span></div></td><td class="r n" style="color:${onHand(i) === 0 ? 'var(--out)' : 'inherit'}">${fmtQty(onHand(i))}</td><td class="r n hide-m">${i.par}</td><td class="r n hide-m">${fmtQty(need(i))}</td><td class="r"><span class="oq">${cases(i)}<small>${(i.unitsPerCase || 1) > 1 ? plural(cases(i), 'case') + ' · ' + cases(i) * i.unitsPerCase + ' units' : plural(cases(i), 'unit')}</small></span></td><td class="r n hide-m cost">${money(lineCost(i))}</td></tr>`
-      : `<tr><td class="dim">${esc(i.name)}</td><td class="r n dim">${fmtQty(onHand(i))}</td><td class="r n dim hide-m">${i.par}</td><td class="r dim hide-m">—</td><td class="r"><span class="pill ok"><i class="dot"></i>at par</span></td><td class="r dim hide-m">—</td></tr>`).join('')}
+        ${rows.map(i => need(i) > 0 ? `<tr><td><b style="font-weight:500">${esc(i.name)}</b><div class="muted" style="font-size:12px">${esc(i.unit)}${(i.unitsPerCase || 1) > 1 ? ' · case of ' + i.unitsPerCase : ''}${i.code ? ' · #' + esc(i.code) : ''}<span class="hide-d"> · par ${fmtQty(i.par)}${i.casePrice != null ? ' · ' + money(lineCost(i)) : ''}</span></div></td><td class="r n" style="color:${onHand(i) === 0 ? 'var(--out)' : 'inherit'}">${fmtQty(onHand(i))}</td><td class="r n hide-m">${fmtQty(i.par)}</td><td class="r n hide-m">${fmtQty(need(i))}</td><td class="r"><span class="oq">${cases(i)}<small>${(i.unitsPerCase || 1) > 1 ? plural(cases(i), 'case') + ' · ' + cases(i) * i.unitsPerCase + ' units' : plural(cases(i), 'unit')}</small></span></td><td class="r n hide-m cost">${money(lineCost(i))}</td></tr>`
+      : `<tr><td class="dim">${esc(i.name)}</td><td class="r n dim">${fmtQty(onHand(i))}</td><td class="r n dim hide-m">${fmtQty(i.par)}</td><td class="r dim hide-m">—</td><td class="r"><span class="pill ok"><i class="dot"></i>at par</span></td><td class="r dim hide-m">—</td></tr>`).join('')}
       </tbody><tfoot><tr><td colspan="4">${need_.length} line ${plural(need_.length, 'item')} · ${sc} ${plural(sc, 'case')}</td><td class="r n">${money(cost)}</td><td class="r hide-m"><span class="muted" style="font-size:12px">${need_.some(i => i.casePrice == null) ? 'some unpriced' : 'est.'}</span></td></tr></tfoot></table></div>
     </div>`;
   }).join('') : `<div class="card empty">no suppliers yet.${isAdmin() ? ' <br><button class="btn sm" data-go="suppliers">add a supplier</button>' : ''}</div>`;
@@ -519,7 +519,7 @@ function summaryText(sum, c = cur) {
   const store = settings.storeName || SEED_SETTINGS.storeName;
   const head = `order summary — ${store}\ncount of ${countLabel(c)}${sum.countedBy.length ? ' · counted by ' + sum.countedBy.join(', ') : ''}\n${sum.counted} of ${sum.total} items counted · ${sum.low} below par · ${sum.out} out of stock\n`;
   const body = sum.suppliers.length ? sum.suppliers.map(x => `\n${x.name.toUpperCase()}${x.to ? ` (${METHODS[x.method] || x.method} · ${x.to})` : ''} — ${x.totalCases} ${plural(x.totalCases, 'case')} · ${money(x.totalCost)}${x.unpriced ? ` + ${x.unpriced} unpriced` : ''}${x.sent ? ' · sent' : ' · not yet sent'}\n`
-    + x.lines.map(l => `  • ${l.cases} × ${l.unitsPerCase > 1 ? `case of ${l.unitsPerCase} ` : ''}${l.name}${l.code ? ` #${l.code}` : ''} — on hand ${fmtQty(l.onHand)}, par ${l.par}${l.cost != null ? ` — ${money(l.cost)}` : ''}`).join('\n')).join('\n') : '\nnothing to order — everything counted is at par.';
+    + x.lines.map(l => `  • ${l.cases} × ${l.unitsPerCase > 1 ? `case of ${l.unitsPerCase} ` : ''}${l.name}${l.code ? ` #${l.code}` : ''} — on hand ${fmtQty(l.onHand)}, par ${fmtQty(l.par)}${l.cost != null ? ` — ${money(l.cost)}` : ''}`).join('\n')).join('\n') : '\nnothing to order — everything counted is at par.';
   const foot = `\n\nTOTAL: ${sum.totalCases} ${plural(sum.totalCases, 'case')} · ${money(sum.totalCost)}${sum.unpriced ? ` + ${sum.unpriced} unpriced ${plural(sum.unpriced, 'item')}` : ''}`
     + (sum.notCounted?.length ? `\n\nnot counted (${sum.notCounted.length}): ${sum.notCounted.join(', ')}` : '') + `\n\n${settings.signoff || SEED_SETTINGS.signoff}`;
   return head + body + foot;
@@ -551,7 +551,7 @@ function itemRow(i) {
     <td class="hide-m"><select class="catsel" data-cat="${i.id}" aria-label="category for ${esc(i.name)}">${[...CATS(), ...(CATS().includes(i.group) ? [] : ['uncategorized'])].map(c => `<option value="${esc(c)}" ${catOf(i) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></td>
     <td class="muted hide-m">${esc(i.area)}</td><td class="hide-m">${esc(supById(i.supplierId).name)}</td><td class="muted hide-m">${esc(i.unit)}${(i.unitsPerCase || 1) > 1 ? ' · case of ' + i.unitsPerCase : ''}${i.weightOz ? ` · ${i.weightOz} oz` : ''}</td>
     <td class="r n hide-m" style="font-weight:500">${money(i.casePrice)}</td><td class="r n hide-m" style="font-weight:500">${money(unitPrice(i))}</td><td class="r n hide-m" style="font-weight:500">${money4(ozPrice(i))}</td>
-    <td class="r"><span class="parbox" data-id="${i.id}"><button type="button" data-d="-1" aria-label="lower par">−</button><input type="number" min="0" value="${i.par}" aria-label="par level"><button type="button" data-d="1" aria-label="raise par">+</button></span></td>
+    <td class="r"><span class="parbox" data-id="${i.id}"><button type="button" data-d="-1" aria-label="lower par">−</button><input type="text" inputmode="decimal" autocomplete="off" value="${fmtQty(i.par)}" aria-label="par level"><button type="button" data-d="1" aria-label="raise par">+</button></span></td>
     <td class="r n hide-m" style="color:${status(i) === 'out' ? 'var(--out)' : status(i) === 'low' ? 'var(--low)' : 'inherit'}">${onHand(i) == null ? '<span class="muted" style="font-weight:400;font-size:13px">—</span>' : fmtQty(onHand(i))}</td>
     <td class="r" style="white-space:nowrap"><button class="link" data-edit="${i.id}">edit</button> &nbsp; <button class="link" data-del="${i.id}">remove</button></td></tr>`;
 }
@@ -569,8 +569,11 @@ function renderItems() {
     : `<tr><td colspan="11" class="muted" style="padding:24px 16px">${items.length ? 'no items match.' : 'no items yet. add one, or load the starter list in settings.'}</td></tr>`;
   $$('.parbox').forEach(pb => {
     const it = items.find(i => i.id === pb.dataset.id), inp = $('input', pb);
-    const set = async v => { const par = Math.max(0, Math.round(+v) || 0); it.par = par; render(); await updateDoc(doc(db, 'items', it.id), { par, updatedAt: serverTimestamp() }); };
-    $$('button', pb).forEach(b => b.onclick = () => set(it.par + +b.dataset.d)); inp.onchange = () => set(inp.value);
+    const set = async par => { it.par = par; inp.blur(); render(); await updateDoc(doc(db, 'items', it.id), { par, updatedAt: serverTimestamp() }); };
+    $$('button', pb).forEach(b => b.onclick = () => set(Math.max(0, qround(it.par + +b.dataset.d))));
+    inp.onfocus = () => inp.select();
+    inp.onchange = () => { const v = parseQty(inp.value); if (v == null || Number.isNaN(v)) { toast('use a number like 12, 2.5 or 2 1/2'); inp.value = fmtQty(it.par); return; } set(v); };
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } };
   });
   $$('.catsel').forEach(sel => sel.onchange = async () => {
     const it = items.find(i => i.id === sel.dataset.cat), g = sel.value; if (!it || g === 'uncategorized') return;
@@ -592,7 +595,7 @@ function openItem(it) {
   $('#f-sup').innerHTML = suppliers.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('') || '<option value="">— add a supplier first —</option>';
   $('#f-name').value = it ? it.name : ''; $('#f-area').value = it ? it.area : AREAS()[0]; $('#f-sup').value = it ? it.supplierId : (suppliers[0]?.id || '');
   $('#f-code').value = it?.code || ''; $('#f-cat').value = it?.category || '';
-  $('#f-unit').value = it ? it.unit : ''; $('#f-case').value = it ? (it.unitsPerCase || 1) : 1; $('#f-par').value = it ? it.par : '';
+  $('#f-unit').value = it ? it.unit : ''; $('#f-case').value = it ? (it.unitsPerCase || 1) : 1; $('#f-par').value = it ? fmtQty(it.par) : '';
   $('#f-price').value = it?.casePrice ?? ''; $('#f-weight').value = it?.weightOz ?? '';
   renderTagPicker(); calcPrices();
   $('#item-ov').classList.add('on'); setTimeout(() => $('#f-name').focus(), 30);
@@ -609,10 +612,12 @@ $('#add-item').onclick = () => openItem(null);
 $('#item-form').onsubmit = async e => {
   e.preventDefault();
   if (!$('#f-sup').value) { toast('add a supplier first'); return; }
+  const parV = parseQty($('#f-par').value);
+  if (parV == null || Number.isNaN(parV)) { toast('par: use a number like 12, 2.5 or 2 1/2'); $('#f-par').focus(); return; }
   const price = parseFloat($('#f-price').value), w = parseFloat($('#f-weight').value);
   const d = { name: $('#f-name').value.trim().toLowerCase(), area: $('#f-area').value, supplierId: $('#f-sup').value, group: $('#f-group').value, code: $('#f-code').value.trim(), category: $('#f-cat').value.trim().toLowerCase(),
     unit: $('#f-unit').value.trim().toLowerCase(), unitsPerCase: Math.max(1, parseInt($('#f-case').value) || 1), casePrice: isNaN(price) ? null : price, weightOz: (isNaN(w) || w <= 0) ? null : w,
-    par: Math.max(0, parseInt($('#f-par').value) || 0), tags: itemTags, updatedAt: serverTimestamp(), updatedBy: me.email };
+    par: parV, tags: itemTags, updatedAt: serverTimestamp(), updatedBy: me.email };
   $('#item-ov').classList.remove('on');
   try {
     if (editingId) { await updateDoc(doc(db, 'items', editingId), d); toast('item updated'); }
@@ -700,7 +705,7 @@ function openReport(cnt, ords) {
   $('#rep-body').innerHTML =
     (sum ? `<p class="muted" style="font-size:13px;margin-top:6px">finalized order summary${cnt.managerEmails?.length ? ' · emailed to ' + esc(cnt.managerEmails.join(', ')) : ''}</p>` + (sum.suppliers.length ? sum.suppliers.map(x => { const o = ords.find(y => y.supplierId === x.supplierId); return block(`${esc(x.name)} <span class="muted" style="font-weight:400;font-size:12.5px">· ${o ? `sent by ${esc(o.sentBy)} ${fmtDateTime(o.sentAt)} via ${METHODS[o.method] || esc(o.method)}` : 'not sent'}</span>`, x.lines, x); }).join('') : '<p class="muted" style="font-size:13.5px;margin-top:8px">nothing needed ordering.</p>')
       : (ords.length ? ords.map(o => block(`${esc(o.supplierName)} <span class="muted" style="font-weight:400;font-size:12.5px">· sent by ${esc(o.sentBy)} ${fmtDateTime(o.sentAt)} via ${METHODS[o.method] || esc(o.method)}</span>`, o.lines, o)).join('') : '<p class="muted" style="font-size:13.5px;margin-top:8px">no orders were sent for this count.</p>'))
-    + `<div class="report-day"><h3>below par at count time</h3>${short.length ? `<ul>${short.map(e => `<li><span>${esc(e.name)}</span><span class="num" style="color:${e.on === 0 ? 'var(--out)' : 'var(--low)'}">${fmtQty(e.on)} / ${e.par ?? '?'}</span></li>`).join('')}</ul>` : '<p class="muted" style="font-size:13.5px">everything counted was at par.</p>'}</div>`
+    + `<div class="report-day"><h3>below par at count time</h3>${short.length ? `<ul>${short.map(e => `<li><span>${esc(e.name)}</span><span class="num" style="color:${e.on === 0 ? 'var(--out)' : 'var(--low)'}">${fmtQty(e.on)} / ${e.par == null ? '?' : fmtQty(e.par)}</span></li>`).join('')}</ul>` : '<p class="muted" style="font-size:13.5px">everything counted was at par.</p>'}</div>`
     + (sum && managerEmails().length ? `<div style="margin-top:14px"><button class="btn ghost sm" id="rep-mail"><svg><use href="#i-send"/></svg>email this summary to the manager</button></div>` : '');
   const rm = $('#rep-mail'); if (rm) rm.onclick = () => openSummaryMail(sum, cnt);
   $('#rep-ov').classList.add('on');

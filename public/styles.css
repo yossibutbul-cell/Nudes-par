@@ -210,7 +210,7 @@
   .it .name{font-weight:500;min-width:220px}
   .it .name small{display:block;color:var(--ink-3);font-weight:400;font-size:12px}
   .parbox{display:inline-flex;align-items:center;gap:0;border:1px solid var(--line-strong);border-radius:var(--pill);overflow:hidden;height:32px}
-  .parbox input{border:0;background:none;width:52px;text-align:center;font-family:var(--display);font-weight:600;font-size:15px;outline:none;-moz-appearance:textfield}
+  .parbox input{border:0;background:none;width:58px;text-align:center;font-family:var(--display);font-weight:600;font-size:15px;outline:none;-moz-appearance:textfield}
   .parbox input::-webkit-outer-spin-button,.parbox input::-webkit-inner-spin-button{-webkit-appearance:none}
   .parbox button{border:0;background:none;width:28px;height:100%;cursor:pointer;font-family:var(--display);font-size:16px;color:var(--ink-2)}
   .parbox button:hover{background:var(--bg-2)}

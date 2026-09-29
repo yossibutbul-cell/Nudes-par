@@ -24,7 +24,7 @@ No build step: `public/` is served as-is.
   every item in it. The items screen groups and filters by category. `items.category` is the older
   free-text "product line" (the supplier's own grouping). The first time an admin opens the app after
   categories were added, existing items are sorted automatically by name keywords.
-- **Fractional counts**: on-hand can be 2.5, 2 1/2, ½, etc. The ¼ ½ ¾ buttons set the partial unit.
+- **Fractions**: on-hand counts and par levels can be 2.5, 2 1/2, ½, etc. On the count, the ¼ ½ ¾ buttons set the partial unit.
   Shortfall = par − on hand; orders still round up to whole cases.
 - **Pricing**: each item has a case price, units per case and unit weight (oz).
   price per unit = case price ÷ units per case; price per oz = price per unit ÷ unit weight.
