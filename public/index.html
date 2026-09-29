@@ -126,6 +126,7 @@
     <section class="screen" id="s-items"><div class="wrap">
       <div class="toolbar">
         <div class="search"><svg><use href="#i-search"/></svg><input id="item-q" placeholder="search items" aria-label="search items"></div>
+        <select id="item-cat" class="chip" aria-label="filter by category" style="padding:6px 12px"></select>
         <select id="item-sup" class="chip" aria-label="filter by supplier" style="padding:6px 12px"></select>
         <div class="grow"></div>
         <span class="muted" style="font-size:13px" id="item-n"></span>
@@ -163,7 +164,7 @@
 
     <!-- ── settings ──────────────────────────────────────────────── -->
     <section class="screen" id="s-settings"><div class="wrap">
-      <div class="toolbar"><div><h2 style="font-size:20px">settings</h2><div class="muted" style="font-size:13px">store details and storage areas.</div></div></div>
+      <div class="toolbar"><div><h2 style="font-size:20px">settings</h2><div class="muted" style="font-size:13px">store details, item categories and storage areas.</div></div></div>
       <div class="sect"><h3>store</h3>
         <div class="card" style="padding:18px 20px"><form class="f" id="store-form">
           <div class="f2"><div class="fld"><label for="st-name">store name</label><input id="st-name" placeholder="nudes"></div><div class="fld"><label for="st-addr">address</label><input id="st-addr" placeholder="165 s crescent heights blvd"></div></div>
@@ -171,6 +172,11 @@
           <div class="fld"><label for="st-managers">order manager emails</label><textarea id="st-managers" placeholder="manager@nudesyogurt.com, owner@nudesyogurt.com"></textarea><span class="hint">when a count is finalized, one email with the full order summary goes to everyone listed here. separate with commas or new lines.</span></div>
           <div class="macts" style="margin-top:6px"><button class="btn" type="submit">save store</button></div>
         </form></div>
+      </div>
+      <div class="sect"><h3>item categories</h3><p class="sub">how items are grouped on the items screen, e.g. food, paper goods, equipment.</p>
+        <div class="card"><ul class="arealist" id="cat-list"></ul>
+          <form class="inline-add" id="cat-add"><input id="cat-name" placeholder="new category, e.g. beverages" required aria-label="new category name"><button class="btn sm" type="submit"><svg><use href="#i-plus"/></svg>add category</button></form>
+        </div>
       </div>
       <div class="sect"><h3>storage areas</h3><p class="sub">the sections of the daily count, in the order they're counted.</p>
         <div class="card"><ul class="arealist" id="area-list"></ul>
@@ -220,8 +226,10 @@
 <div class="ov" id="item-ov"><div class="modal wide" role="dialog" aria-labelledby="im-title">
   <h2 id="im-title">add item</h2><p>anything you count.</p>
   <form class="f" id="item-form"><div class="scrollbody f">
+    <div class="fld"><label for="f-name">item name</label><input id="f-name" required placeholder="e.g. greek yogurt base"></div>
     <div class="f2">
-      <div class="fld" style="grid-column:1/-1"><label for="f-name">item name</label><input id="f-name" required placeholder="e.g. greek yogurt base"></div>
+      <div class="fld"><label for="f-group">category</label><select id="f-group"></select><span class="hint">edit the list in settings</span></div>
+      <div class="fld"><label for="f-cat">product line</label><input id="f-cat" placeholder="e.g. sprints - flavored bases"><span class="hint">optional · supplier's grouping</span></div>
     </div>
     <div class="f2">
       <div class="fld"><label for="f-area">storage area</label><select id="f-area"></select></div>
@@ -229,18 +237,17 @@
     </div>
     <div class="f2">
       <div class="fld"><label for="f-code">supplier code</label><input id="f-code" placeholder="e.g. 305318"><span class="hint">optional · goes on the order</span></div>
-      <div class="fld"><label for="f-cat">category</label><input id="f-cat" placeholder="e.g. sprints - flavored bases"><span class="hint">optional</span></div>
+      <div class="fld"><label for="f-unit">count unit</label><input id="f-unit" required placeholder="e.g. bag"></div>
     </div>
     <div class="f2">
-      <div class="fld"><label for="f-unit">count unit</label><input id="f-unit" required placeholder="e.g. bag"></div>
       <div class="fld"><label for="f-case">units per case</label><input id="f-case" type="number" min="1" step="1" value="1" required><span class="hint">orders round up to whole cases</span></div>
+      <div class="fld"><label for="f-par">par level (units)</label><input id="f-par" type="number" min="0" step="1" required placeholder="12"><span class="hint">how many you want on hand</span></div>
     </div>
     <div class="f2">
       <div class="fld"><label for="f-price">case price ($)</label><input id="f-price" type="number" min="0" step="0.01" placeholder="0.00"></div>
       <div class="fld"><label for="f-weight">weight per unit (oz)</label><input id="f-weight" type="number" min="0" step="0.01" placeholder="e.g. 56.4"><span class="hint">net weight of one unit</span></div>
     </div>
     <div class="calc"><div><div class="eyebrow">price per unit</div><div class="v" id="calc-unit">—</div></div><div><div class="eyebrow">price per oz</div><div class="v" id="calc-oz">—</div></div></div>
-    <div class="fld"><label for="f-par">par level (units)</label><input id="f-par" type="number" min="0" step="1" required placeholder="12"><span class="hint">how many you want on hand at open</span></div>
     <div class="fld"><label>dietary</label><div class="tags" id="f-tags"></div></div>
   </div>
   <div class="macts"><button type="button" class="btn ghost" data-close>cancel</button><button class="btn" type="submit" id="im-save">save item</button></div>

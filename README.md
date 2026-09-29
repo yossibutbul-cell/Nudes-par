@@ -19,6 +19,13 @@ No build step: `public/` is served as-is.
 - **Orders**: order = par − on hand, rounded up to whole cases. "Send" opens the user's mail app,
   WhatsApp, or SMS with the order pre-filled (or copies it for phone / portal suppliers) and logs the
   order in `orders/{countId_supplierId}` with lines and estimated cost.
+- **Categories**: every item belongs to one category (`items.group`), e.g. food, paper goods,
+  equipment. Admins manage the ordered list in settings (`settings.categories`); renaming updates
+  every item in it. The items screen groups and filters by category. `items.category` is the older
+  free-text "product line" (the supplier's own grouping). The first time an admin opens the app after
+  categories were added, existing items are sorted automatically by name keywords.
+- **Fractional counts**: on-hand can be 2.5, 2 1/2, ½, etc. The ¼ ½ ¾ buttons set the partial unit.
+  Shortfall = par − on hand; orders still round up to whole cases.
 - **Pricing**: each item has a case price, units per case and unit weight (oz).
   price per unit = case price ÷ units per case; price per oz = price per unit ÷ unit weight.
 
