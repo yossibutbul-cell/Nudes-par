@@ -474,3 +474,15 @@
   .it tr.grp-row + tr td{border-top:0}
   .it select.catsel{border:1px solid var(--line-strong);background:var(--bg);border-radius:var(--pill);padding:5px 10px;font-size:12.5px;outline:none;color:var(--ink);max-width:170px;cursor:pointer}
   .it select.catsel:focus{border-color:var(--taupe)}
+  .count-filters{display:grid;gap:8px;margin-top:14px}
+  .count-filters .frow{display:flex;align-items:center;gap:10px;min-width:0}
+  .count-filters .flbl{font-size:11px;letter-spacing:.12em;color:var(--ink-3);font-weight:500;width:68px;flex:none}
+  .count-filters .chips{min-width:0}
+  @media (max-width:880px){
+    .count-hd .seg{width:100%;display:flex}
+    .count-hd .seg button{flex:1;padding:8px 12px;font-size:13.5px}
+    .count-filters .chips{flex:1;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px;scrollbar-width:none}
+    .count-filters .chips::-webkit-scrollbar{display:none}
+    .count-filters .flbl{width:auto;min-width:58px}
+  }
+  #group-by button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);box-shadow:none}

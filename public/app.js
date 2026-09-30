@@ -99,7 +99,7 @@ let items = [], suppliers = [], users = [], settings = { areas: [] };
 let cur = null;           // the latest count doc: { id, date, status, entries, startedAt, startedBy, ... }
 let count = { entries: {} };   // alias of cur (or empty) for the helpers below
 let todayOrders = {};     // supplierId → order doc for the current count
-let screen = 'today', areaFilter = 'all', showAll = false, editingId = null, editingSup = null;
+let screen = 'today', areaFilter = 'all', catFilter = 'all', countGroup = (() => { try { return localStorage.getItem('nudes-count-group') === 'category' ? 'category' : 'area'; } catch { return 'area'; } })(), showAll = false, editingId = null, editingSup = null;
 let pendingRender = false;
 const unsubs = [];
 const ready = { items: false, suppliers: false, settings: false, count: false };
@@ -364,29 +364,39 @@ function renderCountMeta() {
 function renderCount() {
   renderCountMeta();
   const open = countOpen();
-  $('#count-hd').hidden = !open; $('#count-body').hidden = !open; $('.stick', $('#s-count')).hidden = !open;
+  $('#count-hd').hidden = !open; $('#count-filters').hidden = !open; $('#count-body').hidden = !open; $('.stick', $('#s-count')).hidden = !open;
   if (!open) { countSig = ''; return; }
   const c = counted(), n = items.length;
   $('#prog-lbl').textContent = `${c} of ${n} counted`; $('#prog-pct').textContent = (n ? Math.round(c / n * 100) : 0) + '%'; $('#prog-bar').style.width = (n ? c / n * 100 : 0) + '%';
   const areasUsed = AREAS().filter(a => items.some(i => i.area === a)).concat([...new Set(items.map(i => i.area).filter(a => !AREAS().includes(a)))]);
+  const catsUsed = [...CATS(), 'uncategorized'].filter(c => items.some(i => catOf(i) === c));
   if (areaFilter !== 'all' && !areasUsed.includes(areaFilter)) areaFilter = 'all';
-  const areas = areaFilter === 'all' ? areasUsed : [areaFilter];
-  const sig = JSON.stringify([cur.id, areaFilter, areasUsed, items.map(i => [i.id, i.name, i.area, i.par, i.unit, i.supplierId]), suppliers.map(s => [s.id, s.name])]);
+  if (catFilter !== 'all' && !catsUsed.includes(catFilter)) catFilter = 'all';
+  const byCat = countGroup === 'category', keyOf = i => byCat ? catOf(i) : i.area;
+  const shown = items.filter(i => (areaFilter === 'all' || i.area === areaFilter) && (catFilter === 'all' || catOf(i) === catFilter));
+  const sections = (byCat ? catsUsed : areasUsed).filter(k => shown.some(i => keyOf(i) === k));
+  const sig = JSON.stringify([cur.id, areaFilter, catFilter, countGroup, areasUsed, catsUsed, items.map(i => [i.id, i.name, i.area, i.group, i.par, i.unit, i.supplierId]), suppliers.map(s => [s.id, s.name])]);
   if (sig !== countSig) {
     countSig = sig;
-    $('#area-chips').innerHTML = ['all', ...areasUsed].map(a => `<button class="chip" data-area="${esc(a)}" aria-pressed="${areaFilter === a}">${esc(a)}</button>`).join('');
-    $$('#area-chips .chip').forEach(b => b.onclick = () => { areaFilter = b.dataset.area; renderCount(); });
-    $('#count-body').innerHTML = n ? areas.map(a => {
-      const rows = items.filter(i => i.area === a);
-      return `<section class="area" data-area="${esc(a)}"><h3>${esc(a)}<span class="cnt"></span></h3><div class="card rows">${rows.map(i => `
+    const chips = (list, cur_) => ['all', ...list].map(a => `<button class="chip" data-v="${esc(a)}" aria-pressed="${cur_ === a}">${esc(a)}</button>`).join('');
+    $('#area-chips').innerHTML = chips(areasUsed, areaFilter);
+    $('#cat-chips').innerHTML = chips(catsUsed, catFilter);
+    $$('#area-chips .chip').forEach(b => b.onclick = () => { areaFilter = b.dataset.v; renderCount(); });
+    $$('#cat-chips .chip').forEach(b => b.onclick = () => { catFilter = b.dataset.v; renderCount(); });
+    $$('#group-by button').forEach(b => { b.setAttribute('aria-pressed', b.dataset.g === countGroup); b.onclick = () => { countGroup = b.dataset.g; try { localStorage.setItem('nudes-count-group', countGroup); } catch {} renderCount(); }; });
+    $('#count-body').innerHTML = !n ? `<div class="card empty">no items to count yet.${isAdmin() ? ' <br><button class="btn sm" data-go="items">add items</button>' : ' ask your manager to add items.'}</div>`
+      : !sections.length ? '<div class="card empty">no items match these filters.</div>'
+      : sections.map(k => {
+        const rows = shown.filter(i => keyOf(i) === k);
+        return `<section class="area" data-key="${esc(k)}"><h3>${esc(k)}<span class="cnt"></span></h3><div class="card rows">${rows.map(i => `
         <div class="row" data-row="${i.id}">
-          <div class="name">${esc(i.name)}<small>${esc(supById(i.supplierId).name)} · ${esc(i.unit)}<span class="hide-d"> · <b style="color:var(--ink-2);font-weight:600">par ${fmtQty(i.par)}</b></span></small></div>
+          <div class="name">${esc(i.name)}<small>${esc(byCat ? i.area : catOf(i))} · ${esc(supById(i.supplierId).name)} · ${esc(i.unit)}<span class="hide-d"> · <b style="color:var(--ink-2);font-weight:600">par ${fmtQty(i.par)}</b></span></small></div>
           <div class="par">par<b>${fmtQty(i.par)}</b></div>
           <div class="step" data-id="${i.id}"><button type="button" data-d="-1" aria-label="minus one">−</button><input type="text" inputmode="decimal" autocomplete="off" placeholder="—" aria-label="on hand"><button type="button" data-d="1" aria-label="plus one">+</button></div>
           <div class="frac" data-id="${i.id}" role="group" aria-label="partial unit"><button type="button" data-f="0.25" aria-label="and a quarter">¼</button><button type="button" data-f="0.5" aria-label="and a half">½</button><button type="button" data-f="0.75" aria-label="and three quarters">¾</button></div>
           <div class="st"></div>
         </div>`).join('')}</div></section>`;
-    }).join('') : `<div class="card empty">no items to count yet.${isAdmin() ? ' <br><button class="btn sm" data-go="items">add items</button>' : ' ask your manager to add items.'}</div>`;
+      }).join('');
     $$('#count-body .step').forEach(st => {
       const id = st.dataset.id, inp = $('input', st);
       const it = () => items.find(i => i.id === id);
@@ -409,7 +419,7 @@ function renderCount() {
     $$('button', st.nextElementSibling).forEach(b => b.setAttribute('aria-pressed', Math.abs(+b.dataset.f - fr) < 1e-6));
     $('.st', st.closest('.row')).innerHTML = statusPill(it);
   });
-  $$('#count-body .area').forEach(sec => { const rows = items.filter(i => i.area === sec.dataset.area); $('.cnt', sec).textContent = `${rows.filter(i => onHand(i) != null).length}/${rows.length}`; });
+  $$('#count-body .area').forEach(sec => { const rows = shown.filter(i => keyOf(i) === sec.dataset.key); $('.cnt', sec).textContent = `${rows.filter(i => onHand(i) != null).length}/${rows.length}`; });
   const left = n - c;
   $('#stick-note').innerHTML = !n ? '' : left ? `<b>${left}</b> ${plural(left, 'item')} not yet counted. uncounted items are left off the order report.` : `all ${n} items counted. nice.`;
   $('#reset-count').onclick = () => ask('clear this count?', 'every item goes back to “not counted”. sent orders are kept.', async () => {

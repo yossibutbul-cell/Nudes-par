@@ -98,7 +98,11 @@
       <div id="count-meta"></div>
       <div class="count-hd" id="count-hd">
         <div class="prog"><div class="lbl"><span id="prog-lbl"></span><span class="num" id="prog-pct"></span></div><div class="bar"><i id="prog-bar" style="width:0"></i></div></div>
-        <div class="chips" id="area-chips"></div>
+        <div class="seg" id="group-by" role="group" aria-label="group the count by"><button type="button" data-g="area">by area</button><button type="button" data-g="category">by category</button></div>
+      </div>
+      <div class="count-filters" id="count-filters">
+        <div class="frow"><span class="flbl">area</span><div class="chips" id="area-chips"></div></div>
+        <div class="frow"><span class="flbl">category</span><div class="chips" id="cat-chips"></div></div>
       </div>
       <div id="count-body"></div>
       <div class="stick">
