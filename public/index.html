@@ -34,6 +34,8 @@
     <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/></g></symbol>
     <symbol id="i-send" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 4l16 8-16 8 3-8z"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L19 9a2.8 2.8 0 00-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></symbol>
     <symbol id="i-google" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 019.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 000 24c0 3.9.9 7.5 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.9 6.2C6.5 42.6 14.6 48 24 48z"/></symbol>
   </defs>
@@ -136,7 +138,7 @@
         <span class="muted" style="font-size:13px" id="item-n"></span>
         <button class="btn" id="add-item"><svg><use href="#i-plus"/></svg>add item</button>
       </div>
-      <div class="card scrollx"><table class="it"><thead><tr><th>item</th><th class="hide-m">category</th><th class="hide-m">storage</th><th class="hide-m">supplier</th><th class="hide-m">unit · case</th><th class="r hide-m">case $</th><th class="r hide-m">$ / unit</th><th class="r hide-m">$ / oz</th><th class="r">par</th><th class="r hide-m">on hand</th><th></th></tr></thead><tbody id="items-body"></tbody></table></div>
+      <div class="card scrollx"><table class="it"><thead><tr><th>item</th><th class="hide-m">category</th><th class="hide-m">storage</th><th class="hide-m">supplier</th><th class="hide-m">unit · case</th><th class="r hide-m">case $</th><th class="r hide-m">$ / unit</th><th class="r hide-m">$ / oz</th><th class="r">par</th><th class="r hide-m">on hand</th><th class="acts-col"><span class="sr">actions</span></th></tr></thead><tbody id="items-body"></tbody></table></div>
       <p class="muted" style="font-size:12.5px;margin-top:10px">par is the level you want on the shelf at the start of every day. edit it inline. changes apply to the next count. price per oz = case price ÷ (units per case × unit weight).</p>
     </div></section>
 
@@ -254,7 +256,7 @@
     <div class="calc"><div><div class="eyebrow">price per unit</div><div class="v" id="calc-unit">—</div></div><div><div class="eyebrow">price per oz</div><div class="v" id="calc-oz">—</div></div></div>
     <div class="fld"><label>dietary</label><div class="tags" id="f-tags"></div></div>
   </div>
-  <div class="macts"><button type="button" class="btn ghost" data-close>cancel</button><button class="btn" type="submit" id="im-save">save item</button></div>
+  <div class="macts"><button type="button" class="btn ghost danger" id="im-del" hidden><svg><use href="#i-trash"/></svg>delete item</button><span style="flex:1"></span><button type="button" class="btn ghost" data-close>cancel</button><button class="btn" type="submit" id="im-save">save item</button></div>
   </form>
 </div></div>
 

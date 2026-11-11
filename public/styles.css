@@ -486,3 +486,27 @@
     .count-filters .flbl{width:auto;min-width:58px}
   }
   #group-by button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+
+  /* ── item row actions: pinned to the right edge so they never scroll away ── */
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .it .acts-col{position:sticky;right:0;z-index:1;background:var(--surface);white-space:nowrap;text-align:right;padding-left:10px;box-shadow:-10px 0 10px -10px rgba(43,24,12,.45)}
+  .it thead .acts-col{z-index:2}
+  .iconbtn{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;border:1px solid var(--line-strong);background:transparent;color:var(--ink-2);cursor:pointer;padding:0;vertical-align:middle}
+  .iconbtn+.iconbtn{margin-left:6px}
+  .iconbtn svg{width:15px;height:15px}
+  .iconbtn:hover{background:var(--bg-2);color:var(--ink)}
+  .iconbtn.danger:hover{color:var(--out);border-color:var(--out);background:var(--out-bg)}
+  .btn.ghost.danger{color:var(--out);border-color:var(--out)}
+  .btn.ghost.danger:hover{background:var(--out-bg)}
+  .namebtn{border:0;background:none;padding:0;font:inherit;font-weight:500;color:inherit;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px;transition:text-decoration-color .15s}
+  .namebtn:hover{text-decoration-color:var(--ink-3)}
+  @media (max-width:880px){ .iconbtn{width:36px;height:36px} .it .acts-col{padding-left:6px} }
+  @media (max-width:880px){
+    /* items screen on phones: let names wrap so par + actions fit without scrolling,
+       and give search its own full-width row above the two filters */
+    .it .name{min-width:0}
+    #s-items .toolbar .search{flex:1 1 100%}
+    #s-items .toolbar select{flex:1 1 40%;min-width:0}
+    #s-items .parbox input{width:44px}
+    #s-items .parbox button{width:26px}
+  }

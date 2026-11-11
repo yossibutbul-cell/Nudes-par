@@ -557,13 +557,13 @@ $('#item-q').oninput = renderItems; $('#item-sup').onchange = renderItems; $('#i
 function syncSelect(sel, html) { if (sel.innerHTML !== html) { const v = sel.value; sel.innerHTML = html; sel.value = [...sel.options].some(o => o.value === v) ? v : 'all'; } return sel.value || 'all'; }
 function itemRow(i) {
   return `<tr>
-    <td class="name">${esc(i.name)}${i.code ? `<span class="muted" style="font-weight:400;font-size:12px"> · #${esc(i.code)}</span>` : ''}<small class="hide-d">${esc(supById(i.supplierId).name)} · ${esc(i.area)}${ozPrice(i) != null ? ' · ' + money4(ozPrice(i)) + '/oz' : ''}</small>${i.category ? `<small class="hide-m">${esc(i.category)}</small>` : ''}${i.tags?.length ? `<div class="hide-m">${i.tags.map(t => `<span class="tag">${esc(tagLabel(t))}</span>`).join('')}</div>` : ''}</td>
+    <td class="name"><button type="button" class="namebtn" data-edit="${i.id}" title="edit ${esc(i.name)}">${esc(i.name)}</button>${i.code ? `<span class="muted" style="font-weight:400;font-size:12px"> · #${esc(i.code)}</span>` : ''}<small class="hide-d">${esc(supById(i.supplierId).name)} · ${esc(i.area)}${ozPrice(i) != null ? ' · ' + money4(ozPrice(i)) + '/oz' : ''}</small>${i.category ? `<small class="hide-m">${esc(i.category)}</small>` : ''}${i.tags?.length ? `<div class="hide-m">${i.tags.map(t => `<span class="tag">${esc(tagLabel(t))}</span>`).join('')}</div>` : ''}</td>
     <td class="hide-m"><select class="catsel" data-cat="${i.id}" aria-label="category for ${esc(i.name)}">${[...CATS(), ...(CATS().includes(i.group) ? [] : ['uncategorized'])].map(c => `<option value="${esc(c)}" ${catOf(i) === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></td>
     <td class="muted hide-m">${esc(i.area)}</td><td class="hide-m">${esc(supById(i.supplierId).name)}</td><td class="muted hide-m">${esc(i.unit)}${(i.unitsPerCase || 1) > 1 ? ' · case of ' + i.unitsPerCase : ''}${i.weightOz ? ` · ${i.weightOz} oz` : ''}</td>
     <td class="r n hide-m" style="font-weight:500">${money(i.casePrice)}</td><td class="r n hide-m" style="font-weight:500">${money(unitPrice(i))}</td><td class="r n hide-m" style="font-weight:500">${money4(ozPrice(i))}</td>
     <td class="r"><span class="parbox" data-id="${i.id}"><button type="button" data-d="-1" aria-label="lower par">−</button><input type="text" inputmode="decimal" autocomplete="off" value="${fmtQty(i.par)}" aria-label="par level"><button type="button" data-d="1" aria-label="raise par">+</button></span></td>
     <td class="r n hide-m" style="color:${status(i) === 'out' ? 'var(--out)' : status(i) === 'low' ? 'var(--low)' : 'inherit'}">${onHand(i) == null ? '<span class="muted" style="font-weight:400;font-size:13px">—</span>' : fmtQty(onHand(i))}</td>
-    <td class="r" style="white-space:nowrap"><button class="link" data-edit="${i.id}">edit</button> &nbsp; <button class="link" data-del="${i.id}">remove</button></td></tr>`;
+    <td class="acts-col"><button type="button" class="iconbtn" data-edit="${i.id}" aria-label="edit ${esc(i.name)}" title="edit"><svg><use href="#i-edit"/></svg></button><button type="button" class="iconbtn danger" data-del="${i.id}" aria-label="delete ${esc(i.name)}" title="delete"><svg><use href="#i-trash"/></svg></button></td></tr>`;
 }
 function renderItems() {
   const q = $('#item-q').value.trim().toLowerCase();
@@ -592,11 +592,21 @@ function renderItems() {
     catch (e) { console.error(e); toast('couldn\'t save: ' + (e.code || e.message)); }
   });
   $$('[data-edit]').forEach(b => b.onclick = () => openItem(items.find(i => i.id === b.dataset.edit)));
-  $$('[data-del]').forEach(b => b.onclick = () => { const it = items.find(i => i.id === b.dataset.del); ask(`remove ${it.name}?`, 'it disappears from the count and the order report. past counts keep their history.', async () => { await deleteDoc(doc(db, 'items', it.id)); toast(`removed ${it.name}`); }, 'remove'); });
+  $$('[data-del]').forEach(b => b.onclick = () => confirmDeleteItem(items.find(i => i.id === b.dataset.del)));
 }
 let itemTags = [];
+/* One confirmation path for deletes, used by the table row and by the editor. */
+function confirmDeleteItem(it, after) {
+  if (!it || !isAdmin()) return;
+  ask(`delete ${it.name}?`, 'it disappears from the items list, the count and the order report. this can\'t be undone. past counts and sent orders keep their history.', async () => {
+    try { await deleteDoc(doc(db, 'items', it.id)); after?.(); toast(`deleted ${it.name}`); }
+    catch (e) { console.error(e); toast('couldn\'t delete: ' + (e.code || e.message)); }
+  }, 'delete');
+}
 function openItem(it) {
   editingId = it ? it.id : null; itemTags = it ? [...(it.tags || [])] : [];
+  $('#im-del').hidden = !it;
+  $('#im-del').onclick = () => confirmDeleteItem(it, () => $('#item-ov').classList.remove('on'));
   $('#im-title').textContent = it ? 'edit item' : 'add item'; $('#im-save').textContent = it ? 'save changes' : 'save item';
   $('#f-area').innerHTML = AREAS().map(a => `<option>${esc(a)}</option>`).join('');
   $('#f-group').innerHTML = CATS().map(c => `<option>${esc(c)}</option>`).join('');
