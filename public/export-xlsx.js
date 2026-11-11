@@ -111,10 +111,10 @@ export function buildWorkbook(ExcelJS, d) {
   // ── Suppliers ─────────────────────────────────────────────────────
   const supList = [...(d.suppliers || [])].sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
   addSheet(wb, 'Suppliers', [
-    { h: 'Supplier', w: 24 }, { h: 'Contact', w: 16 }, { h: 'Order via', w: 15 }, { h: 'Send orders to', w: 30 },
+    { h: 'Supplier', w: 24 }, { h: 'Contact', w: 16 }, { h: 'Order via', w: 15 }, { h: 'Send orders to', w: 30 }, { h: 'Website', w: 28 }, { h: 'Portal user', w: 22 },
     { h: 'Delivery days', w: 22 }, { h: 'Order cut-off', w: 12 }, { h: 'Cut-off is', w: 20 }, { h: 'Notes', w: 30 }, { h: 'Items', w: 8, fmt: '0' },
   ], supList.map((s, i) => [
-    s.name, s.contact || null, METHODS[s.method] || s.method || null, s.to || null,
+    s.name, s.contact || null, METHODS[s.method] || s.method || null, s.to || null, s.website || null, (d.loginUsers || {})[s.id] || null,
     arr(s.deliveryDays).filter(x => Number.isInteger(x) && x >= 0 && x < 7).map(x => DAYS[x]).join(' · ') || 'on request',
     s.cutoffTime || null, s.cutoffTime ? (OFFSETS[s.cutoffOffset ?? 1] || null) : null, s.notes || null,
     formula(`COUNTIF(Items!$D$2:$D$${last},A${i + 2})`),

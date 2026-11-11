@@ -50,7 +50,7 @@ export const terminate = async () => logCache('terminate');
 export const clearIndexedDbPersistence = async () => logCache('clear');
 export const waitForPendingWrites = () => window.__pendingForever ? new Promise(() => {}) : Promise.resolve();
 export const collection = (_, ...segs) => ({ kind: 'col', path: segs.join('/'), where: [], order: null, lim: 0 });
-export function doc(a, ...segs) { if (a && a.kind === 'col') return { kind: 'doc', path: a.path + '/' + 'a' + Date.now().toString(36) + (++autoId) }; return { kind: 'doc', path: segs.join('/') }; }
+export function doc(a, ...segs) { const path = (a && a.kind === 'col') ? a.path + '/' + 'a' + Date.now().toString(36) + (++autoId) : segs.join('/'); return { kind: 'doc', path, id: path.split('/').pop() }; }
 export const query = (c, ...cs) => { const q = { ...c, where: [...c.where] }; cs.forEach(x => { if (x.w) q.where.push(x.w); if (x.o) q.order = x.o; if (x.l) q.lim = x.l; }); return q; };
 export const where = (f, op, v) => ({ w: { f, op, v } });
 export const orderBy = (f, dir = 'asc') => ({ o: { f, dir } });

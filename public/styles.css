@@ -621,3 +621,14 @@
   @media (max-width:880px){ .toast{bottom:auto;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%) translateY(-12px)} .toast.on{transform:translateX(-50%) translateY(0)} }
   @media (max-width:880px){ .hello .acts-h{flex-direction:column-reverse} }
   @media (max-width:880px){ .arealist .link{padding:12px 8px} }
+
+  /* supplier website + portal login */
+  .pwbox{position:relative;display:flex}
+  .pwbox input{flex:1;padding-right:64px}
+  .pwbox .link{position:absolute;right:6px;top:50%;transform:translateY(-50%)}
+  .sc dd a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+  .sc dd.cred{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+  .sc dd.cred span{word-break:break-all}
+  .sc dd.cred .pw{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+  .sc dd.cred .link{padding:0 2px;font-size:12.5px}
+  @media (max-width:880px){ .sc dd.cred .link{padding:6px 4px;font-size:14px} }

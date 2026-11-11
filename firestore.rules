@@ -30,6 +30,10 @@ service cloud.firestore {
     match /suppliers/{id} { allow read: if isUser(); allow write: if isAdmin(); }
     match /settings/{id}  { allow read: if isUser(); allow write: if isAdmin(); }
 
+    // ── supplier portal logins: admins only (kept apart from /suppliers,
+    //    which staff read for the order report) ────────────────────
+    match /supplierLogins/{id} { allow read, write: if isAdmin(); }
+
     // ── daily counts & sent orders: everyone on the team ────────────
     match /counts/{day}   { allow read, write: if isUser(); }
     match /orders/{id}    { allow read, write: if isUser(); }

@@ -32,6 +32,12 @@ No build step: `public/` is served as-is.
 - **Orders**: order = par − on hand, rounded up to whole cases. "Send" opens the user's mail app,
   WhatsApp, or SMS with the order pre-filled (or copies it for phone / portal suppliers) and logs the
   order in `orders/{countId_supplierId}` with lines and estimated cost.
+- **Supplier logins**: each supplier has a website (`suppliers.website`, rendered only as an
+  http(s) link) and an optional portal user + password. The login lives in
+  `supplierLogins/{supplierId}`, a separate collection that only admins can read or write, because
+  staff need `/suppliers` for the order report and Firestore rules are per document, not per field.
+  Passwords are masked until "show" is tapped and hide again when you leave the screen. The Excel
+  export includes the website and portal user, never the password.
 - **Categories**: every item belongs to one category (`items.group`), e.g. food, paper goods,
   equipment. Admins manage the ordered list in settings (`settings.categories`); renaming updates
   every item in it. The items screen groups and filters by category. `items.category` is the older

@@ -101,6 +101,8 @@ const relDay = n => n === 0 ? 'today' : n === 1 ? 'tomorrow' : null;
 /* ── state ─────────────────────────────────────────────────────────── */
 let me = null;            // { email, name, photo, role }
 let items = [], suppliers = [], users = [], settings = { areas: [] };
+let logins = {};   // supplierId → { user, password } (admins only)
+const shownPw = new Set();   // suppliers whose password is revealed on screen
 let cur = null;           // the latest count doc: { id, date, status, entries, startedAt, startedBy, ... }
 let count = { entries: {} };   // alias of cur (or empty) for the helpers below
 let todayOrders = {};     // supplierId → order doc for the current count
@@ -254,6 +256,7 @@ function enterApp() {
   unsubs.push(onSnapshot(query(collection(db, 'suppliers'), orderBy('name')), s => { suppliers = s.docs.map(d => ({ id: d.id, ...d.data() })); ready.suppliers = true; scheduleRender(); }, onErr));
   unsubs.push(onSnapshot(doc(db, 'settings', 'main'), s => { settings = s.exists() ? s.data() : { areas: [] }; if (!settings.areas) settings.areas = []; sortItems(); ready.settings = true; scheduleRender(); }, onErr));
   if (isAdmin()) unsubs.push(onSnapshot(collection(db, 'users'), s => { users = s.docs.map(d => ({ id: d.id, ...d.data() })); scheduleRender(); }, onErr));
+  if (isAdmin()) unsubs.push(onSnapshot(collection(db, 'supplierLogins'), s => { logins = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); scheduleRender(); }, onErr));
   subscribeCurrent();
 }
 /* The current count is simply the most recently started one. If it is finalized,
@@ -284,6 +287,7 @@ async function startCount(date) {
 function go(s) {
   if (!me) return;
   if (ADMIN_SCREENS.includes(s) && !isAdmin()) s = 'today';
+  if (s !== screen) shownPw.clear();   // a revealed supplier password hides again once you leave
   screen = s;
   $$('.screen').forEach(el => el.classList.toggle('on', el.id === 's-' + s));
   $$('.nav [data-go], .tabbar [data-go]').forEach(b => { if (b.dataset.go === s) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
@@ -890,13 +894,29 @@ function renderSuppliers() {
   $('#sup-grid').innerHTML = suppliers.length ? suppliers.map(s => {
     const its = items.filter(i => i.supplierId === s.id), short = its.filter(i => need(i) > 0).length, nd = nextDelivery(s);
     return `<div class="card sc"><div class="hd-row"><h2>${esc(s.name)}</h2>${short ? `<span class="pill low">${short} to order</span>` : '<span class="pill ok">stocked</span>'}</div>
-      <dl><dt>contact</dt><dd>${esc(s.contact) || '—'}</dd><dt>order via</dt><dd>${METHODS[s.method] || esc(s.method)}</dd><dt>send to</dt><dd style="word-break:break-all">${esc(s.to) || '—'}</dd><dt>delivers</dt><dd>${s.deliveryDays?.length ? s.deliveryDays.map(d => DAYS[d]).join(' · ') : 'on request'}</dd><dt>cut-off</dt><dd>${s.cutoffTime ? `${fmtTime(s.cutoffTime)} ${['same day', 'day before', 'two days before'][s.cutoffOffset ?? 1]}` : '—'}</dd><dt>next</dt><dd>${nd ? (relDay(nd.n) || fmtDay(nd.deliver, { weekday: 'short', month: 'short', day: 'numeric' })) : '—'}</dd>${s.notes ? `<dt>notes</dt><dd>${esc(s.notes)}</dd>` : ''}</dl>
+      <dl><dt>contact</dt><dd>${esc(s.contact) || '—'}</dd><dt>order via</dt><dd>${METHODS[s.method] || esc(s.method)}</dd><dt>send to</dt><dd style="word-break:break-all">${esc(s.to) || '—'}</dd><dt>delivers</dt><dd>${s.deliveryDays?.length ? s.deliveryDays.map(d => DAYS[d]).join(' · ') : 'on request'}</dd><dt>cut-off</dt><dd>${s.cutoffTime ? `${fmtTime(s.cutoffTime)} ${['same day', 'day before', 'two days before'][s.cutoffOffset ?? 1]}` : '—'}</dd><dt>next</dt><dd>${nd ? (relDay(nd.n) || fmtDay(nd.deliver, { weekday: 'short', month: 'short', day: 'numeric' })) : '—'}</dd>${loginRows(s)}${s.notes ? `<dt>notes</dt><dd>${esc(s.notes)}</dd>` : ''}</dl>
       <div class="items"><b>${its.length} ${plural(its.length, 'item')}</b>${its.length ? ' · ' + esc(its.slice(0, 4).map(i => i.name).join(', ')) + (its.length > 4 ? ', +' + (its.length - 4) + ' more' : '') : ''}</div>
       <div class="acts"><button class="btn ghost sm" data-go="orders">view order</button><button class="btn ghost sm" data-supedit="${s.id}">edit</button><button class="link" data-supdel="${s.id}" style="margin-left:auto">remove</button></div></div>`;
   }).join('') : '<div class="card empty" style="grid-column:1/-1">no suppliers yet. add the first one.</div>';
   $$('[data-supedit]').forEach(b => b.onclick = () => openSup(suppliers.find(s => s.id === b.dataset.supedit)));
-  $$('[data-supdel]').forEach(b => b.onclick = () => { const s = supById(b.dataset.supdel); const n = items.filter(i => i.supplierId === s.id).length; if (n) { toast(`move or remove its ${n} ${plural(n, 'item')} first`); return; } ask(`remove ${s.name}?`, 'past orders keep their history.', async () => { await deleteDoc(doc(db, 'suppliers', s.id)); toast(`removed ${s.name}`); }, 'remove'); });
+  $$('[data-pwshow]').forEach(b => b.onclick = () => { const id = b.dataset.pwshow; shownPw.has(id) ? shownPw.delete(id) : shownPw.add(id); renderSuppliers(); });
+  $$('[data-copy]').forEach(b => b.onclick = () => { const [id, k] = b.dataset.copy.split(':'); const v = logins[id]?.[k]; if (v) copyText(v).then(ok => toast(ok ? `${k} copied` : 'copy blocked by the browser')); });
+  $$('[data-supdel]').forEach(b => b.onclick = () => { const s = supById(b.dataset.supdel); const n = items.filter(i => i.supplierId === s.id).length; if (n) { toast(`move or remove its ${n} ${plural(n, 'item')} first`); return; } ask(`remove ${s.name}?`, 'past orders keep their history.', async () => { const b = writeBatch(db); b.delete(doc(db, 'suppliers', s.id)); b.delete(doc(db, 'supplierLogins', s.id)); await b.commit(); toast(`removed ${s.name}`); }, 'remove'); });
 }
+/* website: only http(s) links are ever rendered; a bare "pregel.com" becomes https://pregel.com */
+function webUrl(v) {
+  v = String(v || '').trim(); if (!v) return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = 'https://' + v;
+  try { const u = new URL(v); return /^https?:$/.test(u.protocol) ? u.href : ''; } catch { return ''; }
+}
+function loginRows(s) {
+  const web = webUrl(s.website), l = logins[s.id] || {};
+  let h = `<dt>website</dt><dd style="word-break:break-all">${web ? `<a href="${esc(web)}" target="_blank" rel="noopener noreferrer">${esc(web.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}</a>` : '—'}</dd>`;
+  if (l.user) h += `<dt>user</dt><dd class="cred"><span>${esc(l.user)}</span><button class="link" data-copy="${s.id}:user">copy</button></dd>`;
+  if (l.password) h += `<dt>password</dt><dd class="cred"><span class="pw">${shownPw.has(s.id) ? esc(l.password) : '••••••••'}</span><button class="link" data-pwshow="${s.id}">${shownPw.has(s.id) ? 'hide' : 'show'}</button><button class="link" data-copy="${s.id}:password">copy</button></dd>`;
+  return h;
+}
+$('#g-pass-show').onclick = () => { const p = $('#g-pass'), on = p.type === 'password'; p.type = on ? 'text' : 'password'; $('#g-pass-show').textContent = on ? 'hide' : 'show'; };
 let supDays = [];
 function renderDayPicker() { $('#g-days').innerHTML = DAYS.map((d, i) => `<button type="button" data-day="${i}" aria-pressed="${supDays.includes(i)}">${d}</button>`).join(''); $$('#g-days button').forEach(b => b.onclick = () => { const i = +b.dataset.day; supDays = supDays.includes(i) ? supDays.filter(x => x !== i) : [...supDays, i].sort(); renderDayPicker(); }); }
 function toHint() { $('#g-to-hint').textContent = { email: 'email address', whatsapp: 'phone number with country code, e.g. +1 323 555 0188', sms: 'phone number', phone: 'phone number', portal: 'portal web address' }[$('#g-method').value]; }
@@ -906,6 +926,8 @@ function openSup(s) {
   $('#sm-title').textContent = s ? 'edit supplier' : 'add supplier';
   $('#g-name').value = s?.name || ''; $('#g-contact').value = s?.contact || ''; $('#g-method').value = s?.method || 'email'; $('#g-to').value = s?.to || '';
   $('#g-cutoff').value = s?.cutoffTime || ''; $('#g-cutday').value = String(s?.cutoffOffset ?? 1); $('#g-notes').value = s?.notes || '';
+  const l = (s && logins[s.id]) || {};
+  $('#g-web').value = s?.website || ''; $('#g-user').value = l.user || ''; $('#g-pass').value = l.password || ''; $('#g-pass').type = 'password'; $('#g-pass-show').textContent = 'show';
   renderDayPicker(); toHint();
   $('#sup-ov').classList.add('on'); setTimeout(() => $('#g-name').focus(), 30);
 }
@@ -913,11 +935,19 @@ $('#add-sup').onclick = () => openSup(null);
 $('#sup-form').onsubmit = async e => {
   e.preventDefault();
   const d = { name: $('#g-name').value.trim().toLowerCase(), contact: $('#g-contact').value.trim().toLowerCase(), method: $('#g-method').value, to: $('#g-to').value.trim(),
-    deliveryDays: supDays, cutoffTime: $('#g-cutoff').value || '', cutoffOffset: +$('#g-cutday').value, notes: $('#g-notes').value.trim(), updatedAt: serverTimestamp(), updatedBy: me.email };
+    deliveryDays: supDays, cutoffTime: $('#g-cutoff').value || '', cutoffOffset: +$('#g-cutday').value, notes: $('#g-notes').value.trim(), website: $('#g-web').value.trim(), updatedAt: serverTimestamp(), updatedBy: me.email };
+  const user = $('#g-user').value.trim(), password = $('#g-pass').value;
+  $('#g-pass').value = '';
   $('#sup-ov').classList.remove('on');
   try {
-    if (editingSup) { await updateDoc(doc(db, 'suppliers', editingSup), d); toast('supplier updated'); }
-    else { await setDoc(doc(collection(db, 'suppliers')), { ...d, createdAt: serverTimestamp() }); toast(`added ${d.name}`); }
+    const ref = editingSup ? doc(db, 'suppliers', editingSup) : doc(collection(db, 'suppliers'));
+    const b = writeBatch(db);
+    if (editingSup) b.update(ref, d); else b.set(ref, { ...d, createdAt: serverTimestamp() });
+    const had = logins[ref.id] || {};
+    if (user || password) { if (user !== (had.user || '') || password !== (had.password || '')) b.set(doc(db, 'supplierLogins', ref.id), { user, password, updatedAt: serverTimestamp(), updatedBy: me.email }); }
+    else if (had.user || had.password) b.delete(doc(db, 'supplierLogins', ref.id));
+    await b.commit();
+    toast(editingSup ? 'supplier updated' : `added ${d.name}`);
   } catch (err) { console.error(err); toast('couldn\'t save: ' + (err.code || err.message)); }
 };
 
@@ -1077,7 +1107,8 @@ async function exportExcel(btn) {
     const counts = countSnap.docs.map(x => { const c = x.data(); return { ...c, id: x.id, startedAt: asDate(c.startedAt), finalizedAt: asDate(c.finalizedAt) }; });
     const orders = orderSnap.docs.map(x => { const o = x.data(); return { ...o, id: x.id, sentAt: asDate(o.sentAt) }; });
     const team = userSnap.docs.map(x => { const u = x.data(); return { ...u, id: x.id, lastSeen: asDate(u.lastSeen) }; });
-    const wb = buildWorkbook(ExcelJS, { items, suppliers, settings, users: team, counts, orders, openCountId: countOpen() ? cur.id : null, exportedAt: new Date(), exportedBy: me.email, timeZone: TIMEZONE });
+    const loginUsers = Object.fromEntries(Object.entries(logins).map(([id, l]) => [id, l.user || '']));   // passwords never leave the app
+    const wb = buildWorkbook(ExcelJS, { items, suppliers, loginUsers, settings, users: team, counts, orders, openCountId: countOpen() ? cur.id : null, exportedAt: new Date(), exportedBy: me.email, timeZone: TIMEZONE });
     const blob = new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `nudes par export ${todayKey()}.xlsx` });
     document.body.appendChild(a); a.click();
