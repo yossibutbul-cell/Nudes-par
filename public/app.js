@@ -9,6 +9,7 @@ import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc
   from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
 import { firebaseConfig, OWNER_EMAIL, TIMEZONE } from './firebase-config.js';
 import { SEED_SETTINGS, SEED_SUPPLIERS, SEED_ITEMS } from './seed.js';
+import { buildWorkbook } from './export-xlsx.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -810,6 +811,43 @@ $('#seed-btn').onclick = () => ask('load the starter list?', `${SEED_ITEMS.lengt
   SEED_ITEMS.forEach(it => b.set(doc(collection(db, 'items')), { ...it, createdAt: serverTimestamp(), createdBy: me.email }));
   await b.commit(); toast('starter data loaded'); go('items');
 }, 'load it');
+
+/* ── excel export (admin) ──────────────────────────────────────────────
+   ExcelJS (~1 MB) is fetched only when someone exports, pinned to an exact version
+   and checked against its hash, so staff phones never download it. */
+const EXCELJS = { src: 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js', integrity: 'sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz' };
+let excelLoading = null;
+function loadExcelJS() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  return excelLoading ||= new Promise((resolve, reject) => {
+    const s = Object.assign(document.createElement('script'), { src: EXCELJS.src, integrity: EXCELJS.integrity, crossOrigin: 'anonymous' });
+    s.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('excel library missing'));
+    s.onerror = () => { excelLoading = null; s.remove(); reject(new Error('couldn\'t load the excel library — check the connection')); };
+    document.head.appendChild(s);
+  });
+}
+const asDate = v => v?.toDate ? v.toDate() : v instanceof Date ? v : null;
+async function exportExcel(btn) {
+  if (!isAdmin() || btn.disabled) return;
+  const label = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = 'preparing…';
+  try {
+    const [ExcelJS, countSnap, orderSnap, userSnap] = await Promise.all([
+      loadExcelJS(), getDocs(collection(db, 'counts')), getDocs(collection(db, 'orders')), getDocs(collection(db, 'users')),
+    ]);
+    const counts = countSnap.docs.map(x => { const c = x.data(); return { ...c, id: x.id, startedAt: asDate(c.startedAt), finalizedAt: asDate(c.finalizedAt) }; });
+    const orders = orderSnap.docs.map(x => { const o = x.data(); return { ...o, id: x.id, sentAt: asDate(o.sentAt) }; });
+    const team = userSnap.docs.map(x => { const u = x.data(); return { ...u, id: x.id, lastSeen: asDate(u.lastSeen) }; });
+    const wb = buildWorkbook(ExcelJS, { items, suppliers, settings, users: team, counts, orders, openCountId: countOpen() ? cur.id : null, exportedAt: new Date(), exportedBy: me.email, timeZone: TIMEZONE });
+    const blob = new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `nudes par export ${todayKey()}.xlsx` });
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    toast(`exported ${items.length} items, ${suppliers.length} suppliers, ${counts.length} counts`);
+  } catch (e) { console.error(e); toast('export failed: ' + (e.code || e.message)); }
+  finally { btn.disabled = false; btn.innerHTML = label; }
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-export]'); if (b) exportExcel(b); });
 
 /* ── modals ────────────────────────────────────────────────────────── */
 $$('[data-close]').forEach(b => b.onclick = () => b.closest('.ov').classList.remove('on'));

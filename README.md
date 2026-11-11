@@ -28,6 +28,10 @@ No build step: `public/` is served as-is.
   person's choice is remembered on their device).
 - **Fractions**: on-hand counts and par levels can be 2.5, 2 1/2, ½, etc. On the count, the ¼ ½ ¾ buttons set the partial unit.
   Shortfall = par − on hand; orders still round up to whole cases.
+- **Excel export** (admins): Settings → "download excel export", or "export" on the items screen.
+  Builds one workbook in the browser (`public/export-xlsx.js`, ExcelJS loaded on demand from a
+  pinned, integrity-checked CDN URL): items, suppliers, categories, storage areas, team, counts,
+  orders sent, settings. Price per unit / per oz are live Excel formulas; times are store time.
 - **Pricing**: each item has a case price, units per case and unit weight (oz).
   price per unit = case price ÷ units per case; price per oz = price per unit ÷ unit weight.
 
@@ -38,6 +42,7 @@ No build step: `public/` is served as-is.
 | `public/index.html` | markup for every screen, modals and the sign-in gate |
 | `public/styles.css` | the mockup's design tokens and layout, plus app additions |
 | `public/app.js` | all logic: auth, Firestore listeners, rendering, forms |
+| `public/export-xlsx.js` | builds the excel export workbook from plain data (no DOM or Firebase) |
 | `public/seed.js` | starter items and suppliers (from the preliminary ordering sheet) |
 | `public/firebase-config.js` | Firebase web config, owner email, timezone |
 | `firestore.rules` | security rules (allowlist + roles) |
