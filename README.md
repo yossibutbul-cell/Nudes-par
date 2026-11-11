@@ -25,6 +25,10 @@ No build step: `public/` is served as-is.
 - **Offline**: Firestore keeps a copy of the data on the device (persistent cache), so counting works
   with no signal and queued changes sync when the phone is back online, even after closing the app.
   An "offline" pill shows while disconnected.
+  Because that copy stays on the device, **signing out deletes it**, but only after every count has
+  reached the server (otherwise the user is warned and can stay signed in). Access is checked
+  against the server whenever there is signal; the cached answer is used only offline. A user whose
+  access was removed is signed out and the device wiped as soon as the server is reachable again.
 - **Orders**: order = par − on hand, rounded up to whole cases. "Send" opens the user's mail app,
   WhatsApp, or SMS with the order pre-filled (or copies it for phone / portal suppliers) and logs the
   order in `orders/{countId_supplierId}` with lines and estimated cost.

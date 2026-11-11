@@ -44,6 +44,11 @@ export const getFirestore = () => ({});
 export const initializeFirestore = () => ({});
 export const persistentLocalCache = o => ({ kind: "persistent", ...o });
 export const persistentMultipleTabManager = () => ({});
+/* offline-cache controls: window.__pendingForever simulates counts stuck offline; calls are logged for tests */
+const logCache = e => sessionStorage.setItem('cacheLog', (sessionStorage.getItem('cacheLog') || '') + e + ' ');
+export const terminate = async () => logCache('terminate');
+export const clearIndexedDbPersistence = async () => logCache('clear');
+export const waitForPendingWrites = () => window.__pendingForever ? new Promise(() => {}) : Promise.resolve();
 export const collection = (_, ...segs) => ({ kind: 'col', path: segs.join('/'), where: [], order: null, lim: 0 });
 export function doc(a, ...segs) { if (a && a.kind === 'col') return { kind: 'doc', path: a.path + '/' + 'a' + Date.now().toString(36) + (++autoId) }; return { kind: 'doc', path: segs.join('/') }; }
 export const query = (c, ...cs) => { const q = { ...c, where: [...c.where] }; cs.forEach(x => { if (x.w) q.where.push(x.w); if (x.o) q.order = x.o; if (x.l) q.lim = x.l; }); return q; };
@@ -59,6 +64,7 @@ export async function setDoc(ref, data, opts) { await delay(); const cur = opts?
 export async function updateDoc(ref, data) { await delay(); if (!store.has(ref.path)) throw Object.assign(new Error("not-found"), { code: "not-found" }); const cur = store.get(ref.path); for (const [k, v] of Object.entries(data)) { if (v === DELETE) delete cur[k]; else if (v && v.__sentinel === "arrayUnion") cur[k] = [...new Set([...(cur[k] || []), ...v.items])]; else cur[k] = resolve(v); } notify(ref.path); }
 export async function deleteDoc(ref) { await delay(); store.delete(ref.path); notify(ref.path); }
 export async function getDoc(ref) { await delay(); return docSnap(ref.path); }
+export async function getDocFromServer(ref) { if (window.__offline) throw Object.assign(new Error("offline"), { code: "unavailable" }); return getDoc(ref); }
 export async function getDocs(q) { await delay(); return colSnap(q); }
 export function onSnapshot(ref, cb, err) { const l = ref.kind === 'doc' ? { kind: 'doc', path: ref.path, cb } : { kind: 'col', path: ref.path, q: ref, cb }; listeners.add(l); setTimeout(() => l.cb(ref.kind === 'doc' ? docSnap(ref.path) : colSnap(ref)), 10); return () => listeners.delete(l); }
 export function writeBatch() { const ops = []; return { set: (r, d, o) => ops.push(() => setDoc(r, d, o)), update: (r, d) => ops.push(() => updateDoc(r, d)), delete: r => ops.push(() => deleteDoc(r)), commit: async () => { for (const o of ops) await o(); } }; }

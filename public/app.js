@@ -4,7 +4,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut }
   from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js';
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence, waitForPendingWrites, getDocFromServer, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   query, where, orderBy, limit, serverTimestamp, deleteField, writeBatch, arrayUnion }
   from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
 import { firebaseConfig, OWNER_EMAIL, TIMEZONE } from './firebase-config.js';
@@ -145,8 +145,52 @@ $('#google-signin').onclick = async () => {
   }
 };
 function showErr(e) { const el = $('#gate-err'); el.textContent = `couldn't sign in: ${e.code || e.message}`; el.hidden = false; console.error(e); }
-$('#signout').onclick = () => signOut(auth);
-$('#na-signout').onclick = () => signOut(auth);
+/* The offline cache keeps a copy of the store's data on the phone. Signing out deletes it,
+   but only after every count has reached the server, so nothing typed offline is lost. */
+async function wipeLocalData() {
+  try { await terminate(db); await clearIndexedDbPersistence(db); }
+  catch (e) { console.warn('could not clear local data', e); }
+}
+let signingOut = false;
+async function signOutAndWipe({ force = false } = {}) {
+  if (signingOut) return;
+  signingOut = true;
+  if (!force) {
+    const synced = await Promise.race([waitForPendingWrites(db).then(() => true, () => false), new Promise(r => setTimeout(() => r(false), 6000))]);
+    if (!synced) {
+      signingOut = false;   // stay signed in; the warning offers the forced path
+      ask('some counts haven\'t synced yet', 'this phone is offline or still uploading. signing out now deletes the counts that haven\'t reached the server. stay signed in and sign out once you have signal.', () => signOutAndWipe({ force: true }), 'sign out anyway');
+      return;
+    }
+  }
+  try {
+    await signOut(auth).catch(() => {});
+    await wipeLocalData();
+  } finally { location.reload(); }   // the cleared database can't be reused; start fresh
+}
+$('#signout').onclick = () => signOutAndWipe();
+$('#na-signout').onclick = () => signOutAndWipe({ force: true });   // a refused account has nothing to sync
+
+/* Access is checked against the server whenever there is signal; the cached answer is used only
+   offline, so staff can reopen the app in a walk-in. A removed user is signed out (and the phone
+   wiped) as soon as the server is reachable again or refuses a request. */
+async function fetchAccess(ref) {
+  try { return await getDocFromServer(ref); }
+  catch (e) { if (e.code === 'unavailable' || !navigator.onLine) return getDoc(ref); throw e; }
+}
+let checkingAccess = false;
+async function recheckAccess() {
+  if (!me || me.isOwner || checkingAccess || !navigator.onLine) return;
+  checkingAccess = true;
+  try {
+    const snap = await getDocFromServer(doc(db, 'users', me.email));
+    if (!snap.exists()) { toast('your access was removed — signing out'); setTimeout(() => signOutAndWipe({ force: true }), 1500); }
+    else if ((snap.data().role === 'admin') !== isAdmin()) location.reload();   // role changed: rebuild the screens for it
+  } catch (e) {
+    if (e.code === 'permission-denied') { toast('your access was removed — signing out'); setTimeout(() => signOutAndWipe({ force: true }), 1500); }
+  } finally { checkingAccess = false; }
+}
+window.addEventListener('online', recheckAccess);
 $('#na-retry').onclick = () => auth.currentUser && resolveAccess(auth.currentUser);
 
 onAuthStateChanged(auth, async user => {
@@ -160,7 +204,7 @@ async function resolveAccess(user) {
   const first = (user.displayName || email.split('@')[0]).split(' ')[0].toLowerCase();
   const ref = doc(db, 'users', email);
   let snap;
-  try { snap = await getDoc(ref); }
+  try { snap = await fetchAccess(ref); }
   catch (e) { console.error(e); showErr(e); showGate('signin'); return; }
   const isOwner = email === OWNER_EMAIL.toLowerCase();
   if (!snap.exists() && !isOwner) {
@@ -205,7 +249,7 @@ function enterApp() {
   const more = $('#tab-more'); if (more) more.onclick = () => $('#sheet-ov').classList.add('on');
   if (!isAdmin() && ADMIN_SCREENS.includes(screen)) screen = 'today';
 
-  const onErr = e => { console.error(e); toast('sync problem: ' + (e.code || e.message)); };
+  const onErr = e => { console.error(e); if (e.code === 'permission-denied') recheckAccess(); else toast('sync problem: ' + (e.code || e.message)); };
   unsubs.push(onSnapshot(collection(db, 'items'), s => { items = s.docs.map(d => ({ id: d.id, ...d.data() })); sortItems(); ready.items = true; scheduleRender(); }, onErr));
   unsubs.push(onSnapshot(query(collection(db, 'suppliers'), orderBy('name')), s => { suppliers = s.docs.map(d => ({ id: d.id, ...d.data() })); ready.suppliers = true; scheduleRender(); }, onErr));
   unsubs.push(onSnapshot(doc(db, 'settings', 'main'), s => { settings = s.exists() ? s.data() : { areas: [] }; if (!settings.areas) settings.areas = []; sortItems(); ready.settings = true; scheduleRender(); }, onErr));
@@ -216,7 +260,7 @@ function enterApp() {
    there is no open count and the count screen offers to start a new one. */
 let orderSub = null, orderSubId = null;
 function subscribeCurrent() {
-  const onErr = e => { console.error(e); toast('sync problem: ' + (e.code || e.message)); };
+  const onErr = e => { console.error(e); if (e.code === 'permission-denied') recheckAccess(); else toast('sync problem: ' + (e.code || e.message)); };
   unsubs.push(onSnapshot(query(collection(db, 'counts'), orderBy('startedAt', 'desc'), limit(1)), snap => {
     const d = snap.docs[0];
     cur = d ? { entries: {}, ...d.data(), id: d.id } : null;
