@@ -16,6 +16,15 @@ No build step: `public/` is served as-is.
   the order report is built from the latest count. **Finalizing** (on the order report) locks the
   count, stores an order summary snapshot on it, and opens one email to the order manager(s) listed
   in settings with every supplier's order and estimated cost. The next count starts fresh.
+- **Guided count (phone-first)**: the count screen has big per-area buttons and "start / continue
+  counting"; the home screen's main button jumps straight in. The flow shows one item per screen with
+  a built-in number pad, large − / +, ¼ ½ ¾ and clear, and back / skip / next. Typed digits are saved
+  on next/back (never mid-typing); skipped items are offered again at the end of an area, followed by
+  the next area with items left. The phone's back gesture closes the flow, the screen stays awake
+  while counting, and Android phones vibrate lightly on each tap.
+- **Offline**: Firestore keeps a copy of the data on the device (persistent cache), so counting works
+  with no signal and queued changes sync when the phone is back online, even after closing the app.
+  An "offline" pill shows while disconnected.
 - **Orders**: order = par − on hand, rounded up to whole cases. "Send" opens the user's mail app,
   WhatsApp, or SMS with the order pre-filled (or copies it for phone / portal suppliers) and logs the
   order in `orders/{countId_supplierId}` with lines and estimated cost.

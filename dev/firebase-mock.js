@@ -41,6 +41,9 @@ function colSnap(q) {
 let autoId = 0;
 export const initializeApp = () => ({});
 export const getFirestore = () => ({});
+export const initializeFirestore = () => ({});
+export const persistentLocalCache = o => ({ kind: "persistent", ...o });
+export const persistentMultipleTabManager = () => ({});
 export const collection = (_, ...segs) => ({ kind: 'col', path: segs.join('/'), where: [], order: null, lim: 0 });
 export function doc(a, ...segs) { if (a && a.kind === 'col') return { kind: 'doc', path: a.path + '/' + 'a' + Date.now().toString(36) + (++autoId) }; return { kind: 'doc', path: segs.join('/') }; }
 export const query = (c, ...cs) => { const q = { ...c, where: [...c.where] }; cs.forEach(x => { if (x.w) q.where.push(x.w); if (x.o) q.order = x.o; if (x.l) q.lim = x.l; }); return q; };
@@ -52,7 +55,8 @@ export const deleteField = () => DELETE;
 export const arrayUnion = (...items) => ({ __sentinel: 'arrayUnion', items });
 const delay = () => new Promise(r => setTimeout(r, 30));
 export async function setDoc(ref, data, opts) { await delay(); const cur = opts?.merge && store.has(ref.path) ? store.get(ref.path) : {}; merge(cur, data); store.set(ref.path, cur); notify(ref.path); }
-export async function updateDoc(ref, data) { await delay(); if (!store.has(ref.path)) throw Object.assign(new Error('not-found'), { code: 'not-found' }); const cur = store.get(ref.path); merge(cur, data); notify(ref.path); }
+// updateDoc replaces each named field (like Firestore); only setDoc(..., {merge:true}) deep-merges
+export async function updateDoc(ref, data) { await delay(); if (!store.has(ref.path)) throw Object.assign(new Error("not-found"), { code: "not-found" }); const cur = store.get(ref.path); for (const [k, v] of Object.entries(data)) { if (v === DELETE) delete cur[k]; else if (v && v.__sentinel === "arrayUnion") cur[k] = [...new Set([...(cur[k] || []), ...v.items])]; else cur[k] = resolve(v); } notify(ref.path); }
 export async function deleteDoc(ref) { await delay(); store.delete(ref.path); notify(ref.path); }
 export async function getDoc(ref) { await delay(); return docSnap(ref.path); }
 export async function getDocs(q) { await delay(); return colSnap(q); }

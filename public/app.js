@@ -4,7 +4,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut }
   from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js';
-import { getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   query, where, orderBy, limit, serverTimestamp, deleteField, writeBatch, arrayUnion }
   from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
 import { firebaseConfig, OWNER_EMAIL, TIMEZONE } from './firebase-config.js';
@@ -13,7 +13,11 @@ import { buildWorkbook } from './export-xlsx.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+// Keep a copy of the data on the device: counting keeps working with no signal (walk-ins,
+// back rooms) and queued changes sync when the phone is back online, even after a restart.
+let db;
+try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+catch (e) { console.warn('offline cache unavailable, using memory only', e); db = getFirestore(app); }
 
 /* ── tiny helpers ──────────────────────────────────────────────────── */
 const $ = (s, r = document) => r.querySelector(s);
@@ -299,15 +303,16 @@ function render() {
   if (bc) { bc.textContent = left; bc.hidden = !(left && countOpen()); } if (bo) { bo.textContent = supsToOrder; bo.hidden = !supsToOrder; }
   $('#sheet-items').textContent = items.length + ' items'; $('#sheet-sups').textContent = suppliers.length; $('#sheet-team').textContent = users.length ? users.length + ' people' : '';
   ({ today: renderToday, count: renderCount, orders: renderOrders, items: renderItems, suppliers: renderSuppliers, history: renderHistory, team: renderTeam, settings: renderSettings })[screen]();
+  if (flow.open) renderFlow();
 }
 
-function statusPill(it) {
-  const s = status(it);
-  if (s === 'pending') return '<span class="pill neutral">not counted</span>';
-  if (s === 'ok') return '<span class="pill ok"><i class="dot"></i>at par</span>';
-  if (s === 'low') return `<span class="pill low"><i class="dot"></i>${fmtQty(need(it))} short</span>`;
-  return '<span class="pill out"><i class="dot"></i>out</span>';
+function previewPill(it, v) {
+  if (v == null || Number.isNaN(v)) return '<span class="pill neutral">not counted</span>';
+  if (v === 0) return '<span class="pill out"><i class="dot"></i>out</span>';
+  if (v < it.par) return `<span class="pill low"><i class="dot"></i>${fmtQty(qround(it.par - v))} short</span>`;
+  return '<span class="pill ok"><i class="dot"></i>at par</span>';
 }
+const statusPill = it => previewPill(it, onHand(it));
 
 /* ── today ─────────────────────────────────────────────────────────── */
 function renderToday() {
@@ -317,7 +322,10 @@ function renderToday() {
   const below = items.filter(i => status(i) === 'low' || status(i) === 'out'), out = items.filter(i => status(i) === 'out');
   const groups = orderedGroups(), unsent = groups.filter(g => !todayOrders[g.s.id]);
   $('#today-banner').innerHTML = (!n && isAdmin()) ? `<div class="banner">no items yet. add them on the items screen, or load the starter list in settings.<button class="btn sm" data-go="settings">open settings</button></div>` : '';
-  $('#count-cta').innerHTML = (!cur || !open ? 'start a count' : c === 0 ? 'start counting' : c < n ? 'continue count' : 'review count') + ' <svg><use href="#i-arrow"/></svg>';
+  $('#count-cta').innerHTML = (!cur || !open ? 'start a count' : c === 0 ? 'start counting' : c < n ? `continue counting · ${n - c} left` : 'review count') + ' <svg><use href="#i-arrow"/></svg>';
+  const cta = $('#count-cta');
+  if (open && n && c < n) { cta.removeAttribute('data-go'); cta.onclick = () => { go('count'); startFlow('all'); }; }
+  else { cta.setAttribute('data-go', 'count'); cta.onclick = null; }
   $('#greet-sub').textContent = !n ? 'nothing to count yet.'
     : !cur ? 'no count yet. start one whenever you\'re ready.'
     : !open ? `the last count (${countLabel(cur)}) was finalized${cur.finalizedBy ? ' by ' + cur.finalizedBy : ''}. start a new count when you need one.`
@@ -364,6 +372,7 @@ function renderCountMeta() {
 }
 function renderCount() {
   renderCountMeta();
+  renderLaunch();
   const open = countOpen();
   $('#count-hd').hidden = !open; $('#count-filters').hidden = !open; $('#count-body').hidden = !open; $('.stick', $('#s-count')).hidden = !open;
   if (!open) { countSig = ''; return; }
@@ -437,6 +446,192 @@ async function setCount(it, v) {
     await setDoc(ref, { entries: { [it.id]: v == null ? deleteField() : { on: v, par: it.par, by: me.name, at: serverTimestamp() } } }, { merge: true });
   } catch (e) { console.error(e); toast('couldn\'t save — check your connection'); }
 }
+
+/* ── count launcher: big per-area buttons into the guided flow ─────── */
+function areasInUse() {
+  return AREAS().filter(a => items.some(i => i.area === a)).concat([...new Set(items.map(i => i.area).filter(a => a && !AREAS().includes(a)))]);
+}
+function renderLaunch() {
+  const el = $('#count-launch');
+  if (!countOpen() || !items.length) { el.innerHTML = ''; return; }
+  const c = counted(), n = items.length, left = n - c;
+  el.innerHTML = `<div class="card launch">
+    <div class="lhd"><h2>${left ? 'count by area' : 'everything is counted'}</h2><span class="muted" style="font-size:13px">${c} of ${n} counted</span></div>
+    <button type="button" class="btn go-all" data-flow-all>${left === n ? 'start counting' : left ? `continue counting · ${left} left` : 'recount from the start'} <svg><use href="#i-arrow"/></svg></button>
+    <div class="areas">${areasInUse().map(a => {
+      const its = items.filter(i => i.area === a), d = its.filter(i => onHand(i) != null).length, done = d === its.length;
+      return `<button type="button" class="areabtn ${done ? 'done' : ''}" data-flow="${esc(a)}"><b>${esc(a)}<span>${done ? '✓ done' : `${d}/${its.length}`}</span></b><div class="bar"><i style="width:${its.length ? d / its.length * 100 : 0}%"></i></div></button>`;
+    }).join('')}</div>
+  </div>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-flow], [data-flow-all]');
+  if (b) startFlow(b.hasAttribute('data-flow-all') ? 'all' : b.dataset.flow);
+});
+
+/* ── guided count: one item per screen, built for a phone in the store ──
+   Typed digits live in flow.buf and are saved only on next / back / ± / fraction,
+   so other phones never see half-typed numbers. */
+const flow = { open: false, scope: 'all', onlyLeft: false, ids: [], idx: 0, buf: null, done: false };
+let wakeLock = null;
+const buzz = () => { try { if (navigator.userActivation?.hasBeenActive !== false) navigator.vibrate?.(8); } catch { /* not supported */ } };
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+  } catch { wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => { if (flow.open && document.visibilityState === 'visible') keepAwake(true); });
+
+function shelfOrder(list) {
+  const ai = a => { const i = AREAS().indexOf(a); return i < 0 ? 99 : i; }, ci = g => { const i = CATS().indexOf(g); return i < 0 ? 99 : i; };
+  return [...list].sort((a, b) => ai(a.area) - ai(b.area) || ci(a.group) - ci(b.group) || a.name.localeCompare(b.name));
+}
+const inScope = (it, scope) => scope === 'all' || it.area === scope;
+const scopeLabel = sc => sc === 'all' ? 'whole store' : sc;
+const flowItem = () => items.find(i => i.id === flow.ids[flow.idx]);
+
+function startFlow(scope = 'all', onlyLeft = false) {
+  if (!countOpen()) { toast('start a count first'); go('count'); return; }
+  const list = shelfOrder(items.filter(i => inScope(i, scope) && (!onlyLeft || onHand(i) == null)));
+  if (!list.length) { toast(onlyLeft ? 'nothing left to count here' : 'no items here yet'); return; }
+  const first = list.findIndex(i => onHand(i) == null);
+  Object.assign(flow, { open: true, scope, onlyLeft, ids: list.map(i => i.id), idx: first < 0 ? 0 : first, buf: null, done: false });
+  if (!history.state?.flow) history.pushState({ flow: 1 }, '');   // phone back button / swipe closes the flow
+  $('#flow').hidden = false; document.body.style.overflow = 'hidden';
+  keepAwake(true); renderFlow();
+}
+function closeFlow(fromPopState = false) {
+  if (!flow.open) return;
+  commitBuf();
+  flow.open = false; $('#flow').hidden = true; document.body.style.overflow = '';
+  keepAwake(false);
+  if (!fromPopState && history.state?.flow) history.back();
+  render();
+}
+window.addEventListener('popstate', () => { if (flow.open) closeFlow(true); });
+
+function commitBuf() {
+  if (flow.buf == null) return true;
+  const it = flowItem(), b = flow.buf; flow.buf = null;
+  if (!it || b === '' || b === '0.') return true;          // a lone stray '.' is not an entry
+  const v = parseQty(b);
+  if (v == null || Number.isNaN(v)) { toast('that number didn\'t look right, try again'); return false; }
+  if (v !== onHand(it)) setCount(it, v);
+  return true;
+}
+function flowMove(d, save) {
+  if (save) { if (!commitBuf()) return; } else flow.buf = null;
+  buzz();
+  const nx = flow.idx + d;
+  if (nx >= flow.ids.length) flow.done = true;
+  else { flow.idx = Math.max(0, nx); flow.done = false; }
+  renderFlow();
+  $('#flow-body').scrollTop = 0;
+}
+function flowKey(k) {
+  const it = flowItem(); if (!it || flow.done) return;
+  buzz();
+  if (k === 'del') {
+    if (flow.buf == null) { const o = onHand(it); flow.buf = o == null ? '' : String(o); }
+    flow.buf = flow.buf.slice(0, -1);
+  } else if (k === '.') {
+    if (flow.buf == null || flow.buf === '') flow.buf = '0.'; else if (!flow.buf.includes('.')) flow.buf += '.';
+  } else {
+    if (flow.buf == null || flow.buf === '0') flow.buf = '';
+    if (flow.buf.length < 7) flow.buf += k;
+  }
+  renderFlow();
+}
+function flowSet(fn) {               // ±, fractions and clear save immediately
+  if (!commitBuf()) return;
+  const it = flowItem(); if (!it) return;
+  buzz(); setCount(it, fn(onHand(it)));
+}
+const plusMinus = d => flowSet(o => Math.max(0, qround((o ?? 0) + d)));
+
+function renderFlow() {
+  if (!flow.open) return;
+  if (!countOpen()) { toast('this count was finalized'); closeFlow(); return; }
+  flow.ids = flow.ids.filter(id => items.some(i => i.id === id));   // an item deleted mid-count
+  if (!flow.ids.length) { closeFlow(); return; }
+  if (flow.idx >= flow.ids.length) flow.idx = flow.ids.length - 1;
+  const scopeItems = items.filter(i => inScope(i, flow.scope)), doneN = scopeItems.filter(i => onHand(i) != null).length;
+  $('#flow-scope').textContent = flow.onlyLeft ? `${scopeLabel(flow.scope)} · skipped items` : scopeLabel(flow.scope);
+  $('#flow-sub').textContent = `${doneN} of ${scopeItems.length} counted · count of ${countLabel(cur)}`;
+  $('#flow-pos').textContent = flow.done ? '' : `${flow.idx + 1}/${flow.ids.length}`;
+  $('#flow-bar').style.width = (scopeItems.length ? doneN / scopeItems.length * 100 : 0) + '%';
+  $('#flow-nav').hidden = flow.done;
+  if (flow.done) { renderFlowDone(scopeItems); return; }
+  const it = flowItem(), o = onHand(it), typing = flow.buf != null;
+  const shown = typing ? (flow.buf === '' ? '—' : flow.buf) : (o == null ? '—' : fmtQty(o));
+  const preview = typing ? (flow.buf === '' ? null : parseQty(flow.buf)) : o;
+  const fr = (!typing && o != null) ? qround(o - Math.floor(o + 1e-9)) : -1;
+  $('#flow-body').innerHTML = `
+    <div class="flow-item">
+      <div class="chips2"><span class="tg">${esc(it.area || '—')}</span><span class="tg">${esc(catOf(it))}</span></div>
+      <h2>${esc(it.name)}</h2>
+      <div class="sub">${esc(supById(it.supplierId).name)} · ${esc(it.unit || 'unit')}${(it.unitsPerCase || 1) > 1 ? ` · case of ${it.unitsPerCase}` : ''}</div>
+      <div class="parline">par <b>${fmtQty(it.par)}</b></div>
+    </div>
+    <div class="flow-val">
+      <button type="button" class="flow-pm" data-pm="-1" aria-label="minus one">−</button>
+      <div class="flow-num${shown === '—' ? ' empty' : ''}${typing ? ' typing' : ''}" aria-live="polite">${esc(shown)}</div>
+      <button type="button" class="flow-pm" data-pm="1" aria-label="plus one">+</button>
+    </div>
+    <div class="flow-status">${previewPill(it, preview)}</div>
+    <div class="flow-frac">${[['0.25', '¼'], ['0.5', '½'], ['0.75', '¾']].map(([f, l]) => `<button type="button" data-fr="${f}" aria-pressed="${Math.abs(+f - fr) < 1e-6}" aria-label="and ${l}">${l}</button>`).join('')}<button type="button" class="clr" data-clear>clear</button></div>
+    <div class="flow-pad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'].map(k => `<button type="button" class="key${k === '.' || k === 'del' ? ' alt' : ''}" data-k="${k}" aria-label="${k === 'del' ? 'delete digit' : k}">${k === 'del' ? '<svg><use href="#i-del"/></svg>' : k}</button>`).join('')}</div>`;
+  $('#flow-back').disabled = flow.idx === 0;
+  $('#flow-next').innerHTML = flow.idx === flow.ids.length - 1 ? 'finish <svg><use href="#i-check"/></svg>' : 'next <svg><use href="#i-arrow"/></svg>';
+}
+function renderFlowDone(scopeItems) {
+  const left = scopeItems.filter(i => onHand(i) == null).length, storeLeft = items.filter(i => onHand(i) == null).length;
+  const nextArea = flow.scope === 'all' ? null : areasInUse().find(a => a !== flow.scope && items.some(i => i.area === a && onHand(i) == null));
+  const nextLeft = nextArea ? items.filter(i => i.area === nextArea && onHand(i) == null).length : 0;
+  $('#flow-body').innerHTML = `<div class="flow-done">
+    <div class="big"><svg><use href="#i-check"/></svg></div>
+    <h2>${left ? `${left} still to count` : `${scopeLabel(flow.scope)} is counted`}</h2>
+    <p>${scopeItems.length - left} of ${scopeItems.length} counted${flow.scope === 'all' ? '' : ` in ${esc(flow.scope)}`}.${flow.scope !== 'all' ? (storeLeft ? ` ${storeLeft} left in the whole store.` : ' the whole store is counted.') : ''}</p>
+    ${left ? `<button type="button" class="btn" data-fgo="left">count the ${left} skipped</button>` : ''}
+    ${nextArea ? `<button type="button" class="btn${left ? ' ghost' : ''}" data-fgo="area" data-area="${esc(nextArea)}">next: ${esc(nextArea)} · ${nextLeft} left</button>` : ''}
+    ${!storeLeft ? '<button type="button" class="btn" data-fgo="orders">go to the order report</button>' : ''}
+    <button type="button" class="btn ghost" data-fgo="list">back to the count list</button>
+  </div>`;
+}
+$('#flow-body').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.k) flowKey(b.dataset.k);
+  else if (b.dataset.pm) plusMinus(+b.dataset.pm);
+  else if (b.dataset.fr) flowSet(o => { const v = o ?? 0, w = Math.floor(v + 1e-9), f = +b.dataset.fr; return qround(w + (Math.abs(v - w - f) < 1e-6 ? 0 : f)); });
+  else if ('clear' in b.dataset) { flow.buf = null; flowSet(() => null); }
+  else if (b.dataset.fgo === 'left') startFlow(flow.scope, true);
+  else if (b.dataset.fgo === 'area') startFlow(b.dataset.area);
+  else if (b.dataset.fgo === 'orders') { closeFlow(); go('orders'); }
+  else if (b.dataset.fgo === 'list') closeFlow();
+});
+$('#flow-next').onclick = () => flowMove(1, true);
+$('#flow-skip').onclick = () => flowMove(1, false);
+$('#flow-back').onclick = () => flowMove(-1, true);
+$('#flow-exit').onclick = () => closeFlow();
+document.addEventListener('keydown', e => {          // laptops / tablets with keyboards
+  if (!flow.open || $('#confirm-ov').classList.contains('on')) return;
+  if (e.key === 'Escape') { closeFlow(); e.preventDefault(); return; }
+  if (flow.done) return;
+  if (/^[0-9]$/.test(e.key)) flowKey(e.key);
+  else if (e.key === '.' || e.key === ',') flowKey('.');
+  else if (e.key === 'Backspace') flowKey('del');
+  else if (e.key === 'Enter' || e.key === 'ArrowRight') flowMove(1, true);
+  else if (e.key === 'ArrowLeft') { if (flow.idx > 0) flowMove(-1, true); }
+  else if (e.key === '+' || e.key === '=') plusMinus(1);
+  else if (e.key === '-') plusMinus(-1);
+  else return;
+  e.preventDefault();
+});
+
+/* ── offline indicator ── */
+const showNet = () => { $('#netpill').hidden = navigator.onLine; };
+window.addEventListener('online', showNet); window.addEventListener('offline', showNet); showNet();
 
 /* ── orders ────────────────────────────────────────────────────────── */
 $('#show-all').onchange = e => { showAll = e.target.checked; renderOrders(); };
